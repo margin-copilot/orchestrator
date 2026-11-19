@@ -33,10 +33,13 @@ URL = "http://data-agent/"
 
 
 class StandIn(AgentExecutor):
-    def __init__(self, reply=None):
+    def __init__(self, reply=None, fail=False):
         self.reply = reply
+        self.fail = fail
 
     async def execute(self, context, event_queue):
+        if self.fail:
+            raise RuntimeError("tool failed")
         text = self.reply or f"sees {current_request().caller.oid}"
         await event_queue.enqueue_event(new_text_message(text))
 
@@ -44,7 +47,7 @@ class StandIn(AgentExecutor):
         raise NotImplementedError
 
 
-def stand_in_http(issuer, reply=None):
+def stand_in_http(issuer, reply=None, fail=False):
     card = AgentCard(
         name="data-agent",
         description="stand-in",
@@ -58,7 +61,7 @@ def stand_in_http(issuer, reply=None):
         skills=[AgentSkill(id="whoami", name="whoami", description="d", tags=["t"])],
     )
     handler = DefaultRequestHandler(
-        agent_executor=StandIn(reply), task_store=InMemoryTaskStore(), agent_card=card
+        agent_executor=StandIn(reply, fail), task_store=InMemoryTaskStore(), agent_card=card
     )
     validator = issuer.validator(audience=DATA_AGENT, allowed_callers=frozenset({ORCHESTRATOR}))
     app = Starlette(
@@ -140,4 +143,19 @@ async def test_unreachable_agent_becomes_data_agent_unavailable():
     http = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
     agent = A2ADataAgent(URL, SCOPE, lambda token, scopes: "t", http)
     with as_user("north-mgr"), pytest.raises(DataAgentUnavailable):
+        await agent.ask("who am I?")
+
+
+async def test_failing_tool_in_the_agent_becomes_data_agent_unavailable(issuer):
+    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, fail=True))
+    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="data-agent call failed"):
+        await agent.ask("who am I?")
+
+
+async def test_unexpected_exchange_error_becomes_data_agent_unavailable(issuer):
+    def broken(user_token, scopes):
+        raise ConnectionError("identity endpoint unreachable")
+
+    agent = A2ADataAgent(URL, SCOPE, broken, stand_in_http(issuer))
+    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="ConnectionError"):
         await agent.ask("who am I?")

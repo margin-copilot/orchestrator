@@ -5,9 +5,9 @@ from collections.abc import Callable, Sequence
 
 import httpx
 from a2a.client import Client, ClientCallContext, ClientConfig, create_client
-from a2a.client.errors import A2AClientError
 from a2a.helpers import get_message_text, new_text_message
 from a2a.types import Role, SendMessageRequest
+from a2a.utils.errors import A2AError
 from margin_copilot_shared.security.context import current_request
 from margin_copilot_shared.security.obo import OboFailed
 
@@ -29,10 +29,12 @@ class A2ADataAgent:
         try:
             token = await asyncio.to_thread(self._exchange, current_request().token, [self._scope])
         except OboFailed as failed:
-            raise DataAgentUnavailable(f"token exchange failed: {failed.error}") from None
+            raise DataAgentUnavailable(f"token exchange failed: {failed}") from None
+        except Exception as failed:  # managed identity or network failure inside the exchange
+            raise DataAgentUnavailable(f"token exchange failed: {type(failed).__name__}") from None
         try:
             return await self._send(question, token)
-        except (A2AClientError, httpx.HTTPError) as failed:
+        except (A2AError, httpx.HTTPError) as failed:  # A2AError covers client and JSON-RPC errors
             raise DataAgentUnavailable(f"data-agent call failed: {failed}") from None
 
     async def _send(self, question: str, token: str) -> str:

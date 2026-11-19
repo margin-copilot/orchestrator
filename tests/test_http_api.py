@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from margin_copilot_shared.contracts import AgentReply
 from margin_copilot_shared.testing.issuer import LocalIssuer
 
 from orchestrator.adapters.inbound.http_api import create_http_app
@@ -32,7 +33,23 @@ async def test_signed_in_user_gets_an_answer_as_themselves(issuer):
         "/chat", json={"question": "who am I?"}, headers=bearer(issuer)
     )
     assert response.status_code == 200
-    assert response.json() == {"answer": "fake data-agent sees user north-mgr"}
+    assert response.json() == {
+        "answer": "fake data-agent sees user north-mgr",
+        "refusal": None,
+        "agents": ["data-agent"],
+    }
+
+
+async def test_a_refusal_from_the_data_agent_is_reported(issuer):
+    class Refuses:
+        async def ask(self, question):
+            return AgentReply(answer="That's the South's data.", refusal="no_access")
+
+    response = await client_for(issuer, Refuses()).post(
+        "/chat", json={"question": "South margin?"}, headers=bearer(issuer)
+    )
+    assert response.json()["refusal"] == "no_access"
+    assert response.json()["agents"] == ["data-agent"]
 
 
 async def test_no_token_is_401(issuer):

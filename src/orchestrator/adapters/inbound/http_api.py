@@ -1,7 +1,9 @@
-"""Chat API: POST /chat {"question": ...} -> {"answer": ...}, behind the token middleware."""
+"""Chat API: POST /chat {"question": ...} -> {"answer", "refusal", "agents"} (D-029), behind the
+token middleware."""
 
 import json
 import logging
+from dataclasses import asdict
 
 from margin_copilot_shared.security.middleware import AuthMiddleware
 from margin_copilot_shared.security.tokens import TokenValidator
@@ -33,11 +35,11 @@ def create_http_app(data_agent: DataAgent, validator: TokenValidator) -> Starlet
         if len(question) > MAX_QUESTION_CHARS:
             return JSONResponse({"error": "question too long"}, status_code=413)
         try:
-            answer = await ask(question, data_agent)
+            reply = await ask(question, data_agent)
         except DataAgentUnavailable as unavailable:
             log.warning("data agent unavailable: %s", unavailable)
             return JSONResponse({"error": "data-agent unavailable"}, status_code=502)
-        return JSONResponse({"answer": answer})
+        return JSONResponse(asdict(reply))
 
     return Starlette(
         routes=[Route("/chat", chat, methods=["POST"])],

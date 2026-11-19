@@ -23,7 +23,8 @@ def create_app() -> Starlette:
             env["DATA_AGENT_URL"],
             env["DATA_AGENT_SCOPE"],
             obo.exchange,
-            httpx.AsyncClient(timeout=60),
+            # Scale-from-zero, a database waking from auto-pause and several model turns.
+            httpx.AsyncClient(timeout=200),
         )
         return create_http_app(data_agent, entra_validator(tenant_id, client_id, callers))
     if adapters == "fake":

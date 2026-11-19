@@ -8,13 +8,13 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
 
 ## Contract
 
-- `POST /chat` with `{"question": "..."}` (at most 2,000 characters) returns `{"answer": "..."}`.
+- `POST /chat` with `{"question": "..."}` (at most 2,000 characters) returns `{"answer": "...", "refusal": null, "agents": ["data-agent"]}` (D-029). `refusal` is `out_of_scope`, `no_access` or `no_data` when nothing could be answered.
 - It needs a bearer token addressed to this service, with scope `access_as_user`, from an app on `ALLOWED_CALLERS`.
 - Errors:
   - 400 for a malformed body, 413 when too large.
   - 401 or 403 for an untrusted token or a disallowed caller.
-  - 502 `{"error": "data-agent unavailable"}`. The details go only to the log.
-- Milestone 1 passes the question to the data agent over A2A, with a fresh OBO token per call. The model-driven orchestrator arrives in milestone 4.
+  - 502 `{"error": "data-agent unavailable"}`, also when the agent's reply breaks the shared `AgentReply` contract. The details go only to the log.
+- Milestone 4 passes every question to the data agent over A2A, with a fresh OBO token per call, at `DATA_AGENT_URL` (the agent's own card is never trusted for where tokens go). Routing across agents arrives in milestone 7.
 
 ## Configuration
 

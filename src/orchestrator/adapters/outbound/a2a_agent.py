@@ -1,4 +1,4 @@
-"""DataAgent port adapters: A2A client with a fresh OBO token per call, and a fake."""
+"""Agent port adapters: an A2A client with a fresh OBO token per call, and a fake."""
 
 import asyncio
 from collections.abc import Callable, Sequence
@@ -13,18 +13,18 @@ from margin_copilot_shared.security.context import current_request
 from margin_copilot_shared.security.obo import OboFailed
 from pydantic import ValidationError
 
-from orchestrator.application.ask import DataAgentUnavailable
+from orchestrator.application.ask import AgentUnavailable
 
 Exchange = Callable[[str, Sequence[str]], str]
 
 
-def data_agent_card(url: str) -> AgentCard:
-    """Built from DATA_AGENT_URL. The agent's own card is served without a token, so its URL is
+def agent_card(name: str, url: str) -> AgentCard:
+    """Built from the configured URL. An agent's own card is served without a token, so its URL is
     never trusted as the place to send user tokens."""
     return AgentCard(
-        name="data-agent",
-        description="Riad Market sales data, read as the signed-in user.",
-        version="0.2.0",
+        name=name,
+        description=f"Margin Copilot {name}, called as the signed-in user.",
+        version="0.3.0",
         default_input_modes=["text/plain"],
         default_output_modes=["application/json"],
         capabilities=AgentCapabilities(streaming=False),
@@ -34,8 +34,11 @@ def data_agent_card(url: str) -> AgentCard:
     )
 
 
-class A2ADataAgent:
-    def __init__(self, url: str, scope: str, exchange: Exchange, http: httpx.AsyncClient) -> None:
+class A2AAgent:
+    def __init__(
+        self, name: str, url: str, scope: str, exchange: Exchange, http: httpx.AsyncClient
+    ) -> None:
+        self._name = name
         self._url = url
         self._scope = scope
         self._exchange = exchange
@@ -46,18 +49,19 @@ class A2ADataAgent:
         try:
             token = await asyncio.to_thread(self._exchange, current_request().token, [self._scope])
         except OboFailed as failed:
-            raise DataAgentUnavailable(f"token exchange failed: {failed}") from None
+            raise AgentUnavailable(self._name, f"token exchange failed: {failed}") from None
         except Exception as failed:  # managed identity or network failure inside the exchange
-            raise DataAgentUnavailable(f"token exchange failed: {type(failed).__name__}") from None
+            detail = f"token exchange failed: {type(failed).__name__}"
+            raise AgentUnavailable(self._name, detail) from None
         try:
             return await self._send(question, token)
         except (A2AError, httpx.HTTPError) as failed:  # A2AError covers client and JSON-RPC errors
-            raise DataAgentUnavailable(f"data-agent call failed: {failed}") from None
+            raise AgentUnavailable(self._name, f"call failed: {failed}") from None
 
     async def _send(self, question: str, token: str) -> AgentReply:
         if self._client is None:
             self._client = await create_client(
-                data_agent_card(self._url),
+                agent_card(self._name, self._url),
                 client_config=ClientConfig(httpx_client=self._http, streaming=False),
             )
         request = SendMessageRequest(message=new_text_message(question, role=Role.ROLE_USER))
@@ -66,14 +70,18 @@ class A2ADataAgent:
             if event.WhichOneof("payload") == "message":
                 parts = get_data_parts(event.message.parts)
                 if len(parts) != 1:
-                    raise DataAgentUnavailable("data-agent reply isn't one data part")
+                    raise AgentUnavailable(self._name, "reply isn't one data part")
                 try:
                     return AgentReply.model_validate(parts[0])
                 except ValidationError:
-                    raise DataAgentUnavailable("data-agent reply broke the contract") from None
-        raise DataAgentUnavailable("data-agent sent no reply")
+                    raise AgentUnavailable(self._name, "reply broke the contract") from None
+        raise AgentUnavailable(self._name, "sent no reply")
 
 
-class FakeDataAgent:
+class FakeAgent:
+    def __init__(self, name: str) -> None:
+        self._name = name
+
     async def ask(self, question: str) -> AgentReply:
-        return AgentReply(answer=f"fake data-agent sees user {current_request().caller.oid}")
+        oid = current_request().caller.oid
+        return AgentReply(answer=f"fake {self._name} sees user {oid}")

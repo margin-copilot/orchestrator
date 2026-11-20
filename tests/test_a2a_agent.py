@@ -24,8 +24,8 @@ from margin_copilot_shared.testing.issuer import LocalIssuer
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
-from orchestrator.adapters.outbound.data_agent import A2ADataAgent
-from orchestrator.application.ask import DataAgentUnavailable
+from orchestrator.adapters.outbound.a2a_agent import A2AAgent
+from orchestrator.application.ask import AgentUnavailable
 
 DATA_AGENT = "data-agent-client-id"
 ORCHESTRATOR = "orchestrator-client-id"
@@ -107,13 +107,13 @@ def issuer():
 
 
 async def test_each_call_carries_a_fresh_token_for_the_same_user(issuer):
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer))
+    agent = A2AAgent("data-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer))
     with as_user("north-mgr"):
         assert await agent.ask("Dairy margin?") == AgentReply(answer="sees north-mgr")
 
 
 async def test_concurrent_users_stay_separate(issuer):
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer))
+    agent = A2AAgent("data-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer))
 
     async def ask_as(oid):
         with as_user(oid):
@@ -125,8 +125,10 @@ async def test_concurrent_users_stay_separate(issuer):
 
 
 async def test_rejected_token_becomes_data_agent_unavailable(issuer):
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer, azp="cli"), stand_in_http(issuer))
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="403"):
+    agent = A2AAgent(
+        "data-agent", URL, SCOPE, entra_stand_in(issuer, azp="cli"), stand_in_http(issuer)
+    )
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable, match="403"):
         await agent.ask("Dairy margin?")
 
 
@@ -134,14 +136,14 @@ async def test_failed_exchange_never_calls_the_agent(issuer):
     def failing(user_token, scopes):
         raise OboFailed("invalid_grant")
 
-    agent = A2ADataAgent(URL, SCOPE, failing, stand_in_http(issuer))
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="invalid_grant"):
+    agent = A2AAgent("data-agent", URL, SCOPE, failing, stand_in_http(issuer))
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable, match="invalid_grant"):
         await agent.ask("Dairy margin?")
 
 
 async def test_a_refusal_comes_through(issuer):
     http = stand_in_http(issuer, reply={"answer": "That's the South.", "refusal": "no_access"})
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), http)
+    agent = A2AAgent("data-agent", URL, SCOPE, entra_stand_in(issuer), http)
     with as_user("north-mgr"):
         assert (await agent.ask("South margin?")).refusal == "no_access"
 
@@ -157,14 +159,18 @@ async def test_a_refusal_comes_through(issuer):
     ],
 )
 async def test_replies_outside_the_contract_are_refused(issuer, reply):
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, reply=reply))
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="contract|data part"):
+    agent = A2AAgent(
+        "data-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, reply=reply)
+    )
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable, match="contract|data part"):
         await agent.ask("Dairy margin?")
 
 
 async def test_the_agent_card_is_never_fetched(issuer):
     paths = []
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, paths=paths))
+    agent = A2AAgent(
+        "data-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, paths=paths)
+    )
     with as_user("north-mgr"):
         await agent.ask("Dairy margin?")
     assert paths == ["/"]
@@ -175,14 +181,16 @@ async def test_unreachable_agent_becomes_data_agent_unavailable():
         raise httpx.ConnectError("connection refused")
 
     http = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
-    agent = A2ADataAgent(URL, SCOPE, lambda token, scopes: "t", http)
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable):
+    agent = A2AAgent("data-agent", URL, SCOPE, lambda token, scopes: "t", http)
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable):
         await agent.ask("Dairy margin?")
 
 
 async def test_failing_tool_in_the_agent_becomes_data_agent_unavailable(issuer):
-    agent = A2ADataAgent(URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, fail=True))
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="data-agent call failed"):
+    agent = A2AAgent(
+        "data-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, fail=True)
+    )
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable, match="data-agent: call failed"):
         await agent.ask("Dairy margin?")
 
 
@@ -190,6 +198,24 @@ async def test_unexpected_exchange_error_becomes_data_agent_unavailable(issuer):
     def broken(user_token, scopes):
         raise ConnectionError("identity endpoint unreachable")
 
-    agent = A2ADataAgent(URL, SCOPE, broken, stand_in_http(issuer))
-    with as_user("north-mgr"), pytest.raises(DataAgentUnavailable, match="ConnectionError"):
+    agent = A2AAgent("data-agent", URL, SCOPE, broken, stand_in_http(issuer))
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable, match="ConnectionError"):
         await agent.ask("Dairy margin?")
+
+
+async def test_a_policy_reply_with_citations_validates(issuer):
+    reply = {"answer": "Yes, within 4%.", "refusal": None, "citations": ["PP-04 §3.2"]}
+    agent = A2AAgent(
+        "policy-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, reply=reply)
+    )
+    with as_user("north-mgr"):
+        assert (await agent.ask("Can I raise UHT milk by 3.6%?")).citations == ["PP-04 §3.2"]
+
+
+async def test_a_failure_names_the_agent(issuer):
+    agent = A2AAgent(
+        "policy-agent", URL, SCOPE, entra_stand_in(issuer), stand_in_http(issuer, fail=True)
+    )
+    with as_user("north-mgr"), pytest.raises(AgentUnavailable) as failed:
+        await agent.ask("q")
+    assert failed.value.name == "policy-agent"

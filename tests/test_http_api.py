@@ -4,8 +4,9 @@ from margin_copilot_shared.contracts import AgentReply
 from margin_copilot_shared.testing.issuer import LocalIssuer
 
 from orchestrator.adapters.inbound.http_api import create_http_app
-from orchestrator.adapters.outbound.data_agent import FakeDataAgent
-from orchestrator.application.ask import DataAgentUnavailable
+from orchestrator.adapters.outbound.a2a_agent import FakeAgent
+from orchestrator.adapters.outbound.router import FakeRouter
+from orchestrator.application.ask import AgentUnavailable
 
 ORCHESTRATOR = "orchestrator-client-id"
 CLI = "cli-client-id"
@@ -16,9 +17,14 @@ def issuer():
     return LocalIssuer()
 
 
-def client_for(issuer, data_agent=None):
+def client_for(issuer, data_agent=None, router=None, policy_agent=None):
+    agents = {
+        "data-agent": data_agent or FakeAgent("data-agent"),
+        "policy-agent": policy_agent or FakeAgent("policy-agent"),
+    }
     app = create_http_app(
-        data_agent or FakeDataAgent(),
+        router or FakeRouter(),
+        agents,
         issuer.validator(audience=ORCHESTRATOR, allowed_callers=frozenset({CLI})),
     )
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://orch")
@@ -37,6 +43,7 @@ async def test_signed_in_user_gets_an_answer_as_themselves(issuer):
         "answer": "fake data-agent sees user north-mgr",
         "refusal": None,
         "agents": ["data-agent"],
+        "citations": [],
     }
 
 
@@ -84,10 +91,32 @@ async def test_bad_bodies_are_rejected(issuer, body, status):
 async def test_unavailable_data_agent_is_502_without_internal_details(issuer):
     class Down:
         async def ask(self, question):
-            raise DataAgentUnavailable("data-agent call failed: 503 for http://internal-name/")
+            raise AgentUnavailable("data-agent", "call failed: 503 for http://internal-name/")
 
     response = await client_for(issuer, Down()).post(
         "/chat", json={"question": "who am I?"}, headers=bearer(issuer)
     )
     assert response.status_code == 502
     assert response.json() == {"error": "data-agent unavailable"}
+
+
+async def test_an_unavailable_agent_names_itself(issuer):
+    class Down:
+        async def ask(self, question):
+            raise AgentUnavailable("policy-agent", "call failed: 503")
+
+    client = client_for(issuer, router=FakeRouter("policy-agent"), policy_agent=Down())
+    response = await client.post("/chat", json={"question": "Tier?"}, headers=bearer(issuer))
+    assert response.status_code == 502
+    assert response.json() == {"error": "policy-agent unavailable"}
+
+
+async def test_citations_are_reported(issuer):
+    class Cites:
+        async def ask(self, question):
+            return AgentReply(answer="Tier B.", citations=["PP-02 §2"])
+
+    client = client_for(issuer, router=FakeRouter("policy-agent"), policy_agent=Cites())
+    response = await client.post("/chat", json={"question": "Tier?"}, headers=bearer(issuer))
+    assert response.json()["citations"] == ["PP-02 §2"]
+    assert response.json()["agents"] == ["policy-agent"]

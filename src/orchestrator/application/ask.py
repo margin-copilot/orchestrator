@@ -1,17 +1,27 @@
-"""Milestone 4 orchestrator: every question goes to the data agent; routing comes in milestone 7."""
+"""Milestone 5 orchestrator: a router picks one agent per question, and that agent's reply passes
+through unchanged (D-035). Composing answers from several agents arrives in milestone 7."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
 from margin_copilot_shared.contracts import AgentReply, Refusal
 
+AGENTS = ("data-agent", "policy-agent")
 
-class DataAgent(Protocol):
+
+class Agent(Protocol):
     async def ask(self, question: str) -> AgentReply: ...
 
 
-class DataAgentUnavailable(Exception):
-    pass
+class Router(Protocol):
+    async def route(self, question: str) -> str: ...
+
+
+class AgentUnavailable(Exception):
+    def __init__(self, name: str, detail: str) -> None:
+        super().__init__(f"{name}: {detail}")
+        self.name = name
 
 
 @dataclass(frozen=True)
@@ -21,8 +31,12 @@ class ChatReply:
     answer: str
     refusal: Refusal | None
     agents: tuple[str, ...]
+    citations: tuple[str, ...]
 
 
-async def ask(question: str, data_agent: DataAgent) -> ChatReply:
-    reply = await data_agent.ask(question)
-    return ChatReply(reply.answer, reply.refusal, ("data-agent",))
+async def ask(question: str, router: Router, agents: Mapping[str, Agent]) -> ChatReply:
+    name = await router.route(question)
+    if name not in agents:
+        raise AgentUnavailable("router", f"chose {name!r}")
+    reply = await agents[name].ask(question)
+    return ChatReply(reply.answer, reply.refusal, (name,), tuple(reply.citations))

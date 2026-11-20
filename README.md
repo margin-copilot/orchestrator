@@ -8,17 +8,17 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
 
 ## Contract
 
-- `POST /chat` with `{"question": "..."}` (at most 2,000 characters) returns `{"answer": "...", "refusal": null, "agents": ["data-agent"]}` (D-029). `refusal` is `out_of_scope`, `no_access` or `no_data` when nothing could be answered.
+- `POST /chat` with `{"question": "..."}` (at most 2,000 characters) returns `{"answer": "...", "refusal": null, "agents": ["policy-agent"], "citations": ["PP-04 §3.2"]}` (D-029). `refusal` is `out_of_scope`, `no_access` or `no_data` when nothing could be answered; `citations` are policy clauses (empty for data answers).
 - It needs a bearer token addressed to this service, with scope `access_as_user`, from an app on `ALLOWED_CALLERS`.
 - Errors:
   - 400 for a malformed body, 413 when too large.
   - 401 or 403 for an untrusted token or a disallowed caller.
-  - 502 `{"error": "data-agent unavailable"}`, also when the agent's reply breaks the shared `AgentReply` contract. The details go only to the log.
-- Milestone 4 passes every question to the data agent over A2A, with a fresh OBO token per call, at `DATA_AGENT_URL` (the agent's own card is never trusted for where tokens go). Routing across agents arrives in milestone 7.
+  - 502 `{"error": "<agent> unavailable"}` (`data-agent`, `policy-agent` or `router`), also when an agent's reply breaks the shared `AgentReply` contract. The details go only to the log.
+- Milestone 5: a router (one gpt-5-mini call, structured output) picks the data agent or the policy agent, and that agent's reply passes through unchanged (D-035). Each agent is called over A2A with a fresh OBO token, at its configured URL (an agent's own card is never trusted for where tokens go). Answers combining several agents arrive in milestone 7.
 
 ## Configuration
 
-Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`.
+Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's model, called with the managed identity).
 
 ## Run and test
 

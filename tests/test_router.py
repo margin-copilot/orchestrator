@@ -23,6 +23,7 @@ async def test_router_instructions_carry_the_tie_breaks():
     instructions = model.calls[0][1]["instructions"]
     assert "Who approved the flour price increase" in instructions
     assert "Was the 30% yogurt promotion allowed" in instructions
+    assert "What is our price index for UHT milk in the North?" in instructions
 
 
 async def test_router_reasoning_effort_is_low():

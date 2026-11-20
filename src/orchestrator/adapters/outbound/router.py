@@ -1,6 +1,7 @@
 """Router port adapters: one gpt-5-mini call picks the agent for a question (D-035), and a fake.
 The router only routes; each agent enforces access itself."""
 
+import asyncio
 from typing import Any, Literal
 
 from agent_framework import Agent
@@ -22,7 +23,9 @@ class RouteChoice(BaseModel):
 
 
 class FoundryRouter:
-    def __init__(self, client: Any) -> None:
+    def __init__(self, client: Any, limit: float = 30) -> None:
+        # A hard limit: the model client retries timeouts and throttling on its own.
+        self._limit = limit
         self._agent = Agent(
             client=client,
             instructions=INSTRUCTIONS,
@@ -31,7 +34,10 @@ class FoundryRouter:
 
     async def route(self, question: str) -> str:
         try:
-            choice = (await self._agent.run(question)).value
+            async with asyncio.timeout(self._limit):
+                choice = (await self._agent.run(question)).value
+        except TimeoutError:
+            raise AgentUnavailable("router", "timed out") from None
         except ValidationError:
             choice = None
         except Exception as error:  # the model call itself failed

@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import pytest
@@ -36,4 +37,15 @@ async def test_no_structured_choice_is_a_router_failure():
     model = ScriptedChatClient([Message("assistant", ["the data agent, I think"])])
     with pytest.raises(AgentUnavailable) as failed:
         await FoundryRouter(model).route("q")
+    assert failed.value.name == "router"
+
+
+async def test_a_slow_router_fails_within_its_limit():
+    class Slow(ScriptedChatClient):
+        async def _inner_get_response(self, **kwargs):
+            await asyncio.sleep(5)
+            return await super()._inner_get_response(**kwargs)
+
+    with pytest.raises(AgentUnavailable) as failed:
+        await FoundryRouter(Slow([chooses("data-agent")]), limit=0.05).route("q")
     assert failed.value.name == "router"

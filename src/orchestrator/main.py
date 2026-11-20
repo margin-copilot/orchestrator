@@ -36,7 +36,8 @@ def create_app() -> Starlette:
                 model=env["FOUNDRY_MODEL"],
                 credential=ManagedIdentityCredential(client_id=identity),
                 timeout=ROUTER_TIMEOUT,
-            )
+            ),
+            limit=ROUTER_TIMEOUT,
         )
         return create_http_app(router, agents, entra_validator(tenant_id, client_id, callers))
     if adapters == "fake":

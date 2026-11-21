@@ -89,3 +89,19 @@ async def test_router_instructions_carry_the_scope_and_combination_rules():
         "its date and size are in the data" in instructions
     )
     assert '"Was the 30% yogurt promotion in October allowed?" is policy-agent only' in instructions
+
+
+async def test_rule_questions_never_route_to_approvals():
+    model = ScriptedChatClient([chooses("policy-agent")])
+    await FoundryRouter(model).route("Can we raise flour prices during Ramadan?")
+    instructions = " ".join(model.calls[0][1]["instructions"].split())
+    assert (
+        "approvals: only when the user asks the copilot itself to approve, reject or apply a "
+        "proposal or price change, or to list proposals awaiting a decision" in instructions
+    )
+    assert (
+        "Questions about what is allowed, needs approval or is the target are policy-agent"
+        in instructions
+    )
+    assert '"Can we raise flour prices during Ramadan?" is policy-agent' in instructions
+    assert '"What is the price index target for Tier A products?" is policy-agent' in instructions

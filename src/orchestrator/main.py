@@ -4,6 +4,7 @@ import os
 
 import httpx
 from agent_framework.foundry import FoundryChatClient
+from azure.data.tables.aio import TableClient
 from azure.identity.aio import ManagedIdentityCredential
 from margin_copilot_shared.security.obo import OboClient, managed_identity_assertion
 from margin_copilot_shared.security.tokens import entra_validator
@@ -13,11 +14,15 @@ from starlette.applications import Starlette
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import A2AAgent, FakeAgent
 from orchestrator.adapters.outbound.composer import FakeComposer, FoundryComposer
+from orchestrator.adapters.outbound.condenser import FakeCondenser, FoundryCondenser
+from orchestrator.adapters.outbound.fakes import MemoryConversationStore
 from orchestrator.adapters.outbound.router import FakeRouter, FoundryRouter
+from orchestrator.adapters.outbound.table_conversations import TableConversationStore
 from orchestrator.application.ask import AGENTS
 
 ROUTER_TIMEOUT = 30
 COMPOSER_TIMEOUT = 30
+CONDENSER_TIMEOUT = 20
 
 
 def create_app() -> Starlette:
@@ -37,21 +42,36 @@ def create_app() -> Starlette:
                 ("action-agent", "ACTION_AGENT"),
             )
         }
+        credential = ManagedIdentityCredential(client_id=identity)
         model = FoundryChatClient(
             project_endpoint=env["FOUNDRY_PROJECT_ENDPOINT"],
             model=env["FOUNDRY_MODEL"],
-            credential=ManagedIdentityCredential(client_id=identity),
+            credential=credential,
             timeout=max(ROUTER_TIMEOUT, COMPOSER_TIMEOUT),
         )
         router = FoundryRouter(model, limit=ROUTER_TIMEOUT)
         composer = FoundryComposer(model, limit=COMPOSER_TIMEOUT)
+        condenser = FoundryCondenser(model, limit=CONDENSER_TIMEOUT)
+        table = TableClient(
+            endpoint=env["TABLE_ENDPOINT"],
+            table_name=env["CONVERSATIONS_TABLE"],
+            credential=credential,
+        )
+        store = TableConversationStore(table)
         validator = entra_validator(tenant_id, client_id, callers)
-        return create_http_app(router, agents, composer, validator)
+        return create_http_app(router, agents, composer, condenser, store, validator)
     if adapters == "fake":
         # A fresh in-memory key per process: nobody outside this process can mint a token for it.
         validator = LocalIssuer().validator(
             audience="orchestrator", allowed_callers=frozenset({"cli"})
         )
         agents = {name: FakeAgent(name) for name in AGENTS}
-        return create_http_app(FakeRouter(), agents, FakeComposer(), validator)
+        return create_http_app(
+            FakeRouter(),
+            agents,
+            FakeComposer(),
+            FakeCondenser(),
+            MemoryConversationStore(),
+            validator,
+        )
     raise ValueError(f"ADAPTERS must be azure or fake, not {adapters!r}")

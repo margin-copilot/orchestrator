@@ -27,6 +27,8 @@ AZURE = {
     "ACTION_AGENT_SCOPE": "api://action-agent-client-id/access_as_user",
     "FOUNDRY_PROJECT_ENDPOINT": "https://example.services.ai.azure.com/api/projects/example",
     "FOUNDRY_MODEL": "gpt-5-mini",
+    "TABLE_ENDPOINT": "https://stexample.table.core.windows.net/",
+    "CONVERSATIONS_TABLE": "conversations",
 }
 
 

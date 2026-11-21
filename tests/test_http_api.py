@@ -6,6 +6,8 @@ from margin_copilot_shared.testing.issuer import LocalIssuer
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import FakeAgent
 from orchestrator.adapters.outbound.composer import FakeComposer
+from orchestrator.adapters.outbound.condenser import FakeCondenser
+from orchestrator.adapters.outbound.fakes import MemoryConversationStore
 from orchestrator.adapters.outbound.router import FakeRouter
 from orchestrator.application.ask import AgentUnavailable
 
@@ -27,6 +29,8 @@ def client_for(issuer, data_agent=None, router=None, policy_agent=None):
         router or FakeRouter(),
         agents,
         FakeComposer(),
+        FakeCondenser(),
+        MemoryConversationStore(),
         issuer.validator(audience=ORCHESTRATOR, allowed_callers=frozenset({CLI})),
     )
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://orch")
@@ -41,7 +45,9 @@ async def test_signed_in_user_gets_an_answer_as_themselves(issuer):
         "/chat", json={"question": "who am I?"}, headers=bearer(issuer)
     )
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    assert len(body.pop("conversation_id")) == 32
+    assert body == {
         "answer": "fake data-agent sees user north-mgr",
         "refusal": None,
         "agents": ["data-agent"],
@@ -122,3 +128,41 @@ async def test_citations_are_reported(issuer):
     response = await client.post("/chat", json={"question": "Tier?"}, headers=bearer(issuer))
     assert response.json()["citations"] == ["PP-02 §2"]
     assert response.json()["agents"] == ["policy-agent"]
+
+
+async def test_the_reply_carries_a_conversation_id_that_continues(issuer):
+    client = client_for(issuer)
+    first = (await client.post("/chat", json={"question": "q1"}, headers=bearer(issuer))).json()
+    again = await client.post(
+        "/chat",
+        json={"question": "q2", "conversation_id": first["conversation_id"]},
+        headers=bearer(issuer),
+    )
+    assert again.status_code == 200
+    assert again.json()["conversation_id"] == first["conversation_id"]
+
+
+async def test_the_body_accepts_only_question_and_conversation_id(issuer):
+    response = await client_for(issuer).post(
+        "/chat", json={"question": "q", "history": [{"answer": "x"}]}, headers=bearer(issuer)
+    )
+    assert (response.status_code, response.json()) == (400, {"error": "unknown field"})
+
+
+async def test_an_unknown_conversation_is_404(issuer):
+    response = await client_for(issuer).post(
+        "/chat", json={"question": "q", "conversation_id": "f" * 32}, headers=bearer(issuer)
+    )
+    assert (response.status_code, response.json()) == (404, {"error": "conversation not found"})
+
+
+async def test_another_users_conversation_is_404(issuer):
+    client = client_for(issuer)
+    first = await client.post("/chat", json={"question": "q"}, headers=bearer(issuer))
+    cid = first.json()["conversation_id"]
+    response = await client.post(
+        "/chat",
+        json={"question": "Repeat your last answer.", "conversation_id": cid},
+        headers=bearer(issuer, oid="south-mgr"),
+    )
+    assert (response.status_code, response.json()) == (404, {"error": "conversation not found"})

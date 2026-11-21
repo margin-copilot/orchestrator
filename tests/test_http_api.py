@@ -166,3 +166,29 @@ async def test_another_users_conversation_is_404(issuer):
         headers=bearer(issuer, oid="south-mgr"),
     )
     assert (response.status_code, response.json()) == (404, {"error": "conversation not found"})
+
+
+async def test_a_turn_over_its_limit_is_502_and_stores_nothing(issuer):
+    import asyncio
+
+    from orchestrator.adapters.outbound.fakes import MemoryConversationStore as Store
+
+    class Slow:
+        async def ask(self, question):
+            await asyncio.sleep(5)
+            return AgentReply(answer="late")
+
+    store = Store()
+    app = create_http_app(
+        FakeRouter(),
+        {"data-agent": Slow(), "policy-agent": FakeAgent("policy-agent")},
+        FakeComposer(),
+        FakeCondenser(),
+        store,
+        issuer.validator(audience=ORCHESTRATOR, allowed_callers=frozenset({CLI})),
+        turn_limit=0.05,
+    )
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://orch")
+    response = await client.post("/chat", json={"question": "q"}, headers=bearer(issuer))
+    assert (response.status_code, response.json()) == (502, {"error": "orchestrator unavailable"})
+    assert store._turns == {}

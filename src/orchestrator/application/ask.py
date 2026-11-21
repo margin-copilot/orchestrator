@@ -9,7 +9,7 @@ from typing import Literal, Protocol
 
 from margin_copilot_shared.contracts import AgentReply, Refusal
 
-from orchestrator.domain.grounding import ungrounded_numbers
+from orchestrator.domain.grounding import ungrounded_numbers, unknown_citations
 from orchestrator.domain.replies import combined_citations, combined_refusal, stitched
 
 AGENTS = ("data-agent", "policy-agent", "action-agent")
@@ -80,9 +80,19 @@ def to_plan(route: str) -> Plan:
     return ROUTES[route]
 
 
+def _ungrounded(answer: str, sources: list[str]) -> list[str]:
+    return ungrounded_numbers(answer, sources) + unknown_citations(answer, sources)
+
+
 async def ask(
-    question: str, router: Router, agents: Mapping[str, Agent], composer: Composer
+    question: str,
+    router: Router,
+    agents: Mapping[str, Agent],
+    composer: Composer,
+    user_question: str | None = None,
 ) -> ChatReply:
+    """`question` may be a condensed follow-up; numbers are checked against `user_question`, what
+    the user typed, so a number the condenser wrote never counts as given."""
     plan = await router.route(question)
     if plan.kind == APPROVALS:
         return ChatReply(APPROVALS_ANSWER, None, (), ())
@@ -98,10 +108,13 @@ async def ask(
         return ChatReply(reply.answer, reply.refusal, plan.agents, citations)
     if refusal := combined_refusal(replies):
         return ChatReply(stitched(named), refusal, plan.agents, citations)
-    sources = [question, *(f"{r.answer} {' '.join(r.citations)}" for r in replies)]
-    answer = await composer.compose(question, named)
-    if ungrounded := ungrounded_numbers(answer, sources):
-        answer = await composer.compose(question, named, ungrounded)
-        if ungrounded_numbers(answer, sources):
-            answer = stitched(named)  # never an answer with a number no agent gave
+    sources = [user_question or question, *(f"{r.answer} {' '.join(r.citations)}" for r in replies)]
+    try:
+        answer = await composer.compose(question, named)
+        if ungrounded := _ungrounded(answer, sources):
+            answer = await composer.compose(question, named, ungrounded)
+            if _ungrounded(answer, sources):
+                answer = stitched(named)  # never an answer with a number no agent gave
+    except AgentUnavailable:
+        answer = stitched(named)  # two good replies beat a 502
     return ChatReply(answer, None, plan.agents, citations)

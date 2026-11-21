@@ -23,7 +23,7 @@ Combine the agents' replies below into one answer to the user's question about R
 
 
 class Composed(BaseModel):
-    answer: str = Field(max_length=MAX_ANSWER_CHARS)
+    answer: str = Field(min_length=1, max_length=MAX_ANSWER_CHARS)
 
 
 def _message(
@@ -35,7 +35,7 @@ def _message(
         parts.append(f"{SOURCES.get(name, name)}{cited}: {reply.answer}")
     if ungrounded:
         parts.append(
-            f"These numbers aren't in any reply: {', '.join(ungrounded)}. "
+            f"These numbers or clause IDs aren't in any reply: {', '.join(ungrounded)}. "
             "Remove them or quote the replies' figures."
         )
     return "\n\n".join(parts)

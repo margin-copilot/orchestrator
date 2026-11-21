@@ -41,8 +41,8 @@ async def test_a_retry_names_the_ungrounded_numbers():
     await FoundryComposer(model).compose("Was it allowed?", NAMED, ungrounded=["7.25"])
     sent = " ".join(str(m.text) for m in model.calls[0][0])
     assert (
-        "These numbers aren't in any reply: 7.25. Remove them or quote the replies' figures."
-        in sent
+        "These numbers or clause IDs aren't in any reply: 7.25. "
+        "Remove them or quote the replies' figures." in sent
     )
 
 
@@ -54,4 +54,11 @@ async def test_a_slow_composer_fails_within_its_limit():
 
     with pytest.raises(AgentUnavailable) as failed:
         await FoundryComposer(Slow([says("x")]), limit=0.05).compose("q", NAMED)
+    assert failed.value.name == "composer"
+
+
+async def test_an_empty_answer_is_a_composer_failure():
+    model = ScriptedChatClient([says("")])
+    with pytest.raises(AgentUnavailable) as failed:
+        await FoundryComposer(model).compose("q", NAMED)
     assert failed.value.name == "composer"

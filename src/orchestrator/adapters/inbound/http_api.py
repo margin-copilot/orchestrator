@@ -1,6 +1,7 @@
 """Chat API: POST /chat {"question", "conversation_id"?} -> {"answer", "refusal", "agents",
 "citations", "conversation_id"} (D-029, D-041), behind the token middleware."""
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -26,6 +27,7 @@ from orchestrator.application.conversations import (
 
 MAX_BODY_BYTES = 16_384
 MAX_QUESTION_CHARS = 2_000
+TURN_LIMIT = 230  # under the 240 s ingress and client limit; nothing is stored past it
 FIELDS = {"question", "conversation_id"}  # history never comes from the request
 log = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ def create_http_app(
     store: ConversationStore,
     validator: TokenValidator,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    turn_limit: float = TURN_LIMIT,
 ) -> Starlette:
     async def chat_turn(request: Request) -> JSONResponse:
         body = await request.body()
@@ -59,17 +62,21 @@ def create_http_app(
             return JSONResponse({"error": "conversation_id must be a string"}, status_code=400)
         owner = current_request().caller.oid
         try:
-            reply, conversation_id = await chat(
-                question,
-                conversation_id,
-                owner,
-                clock(),
-                router,
-                agents,
-                composer,
-                condenser,
-                store,
-            )
+            async with asyncio.timeout(turn_limit):
+                reply, conversation_id = await chat(
+                    question,
+                    conversation_id,
+                    owner,
+                    clock(),
+                    router,
+                    agents,
+                    composer,
+                    condenser,
+                    store,
+                )
+        except TimeoutError:
+            log.warning("turn timed out")
+            return JSONResponse({"error": "orchestrator unavailable"}, status_code=502)
         except ConversationNotFound:
             return JSONResponse({"error": "conversation not found"}, status_code=404)
         except AgentUnavailable as unavailable:

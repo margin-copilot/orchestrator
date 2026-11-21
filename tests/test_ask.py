@@ -133,3 +133,33 @@ async def test_an_unknown_agent_is_a_router_failure():
     with pytest.raises(AgentUnavailable) as failed:
         await ask("q", StubRouter(Plan("agents", ("policy-agent",))), agents, NoComposer())
     assert failed.value.name == "router"
+
+
+async def test_a_number_the_condenser_added_is_not_grounded():
+    composer = ScriptedComposer("It fell from 24.6% to 21.3%.", "It fell from 24.6% to 21.3%.")
+    margins = AgentReply(answer="North dairy margin: 21.3% in October 2026.")
+    agents = {"data-agent": StubAgent(margins), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    condensed = "Why did North dairy margin fall from 24.6% to 21.3% in October 2026?"
+    reply = await ask(condensed, StubRouter(plan), agents, composer, user_question="And why?")
+    assert reply.answer.startswith("From the sales data:")
+
+
+async def test_a_composer_failure_falls_back_to_the_replies():
+    class Broken:
+        async def compose(self, question, named, ungrounded=()):
+            raise AgentUnavailable("composer", "timed out")
+
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, Broken())
+    assert reply.answer.startswith("From the sales data:") and reply.refusal is None
+
+
+async def test_an_unknown_clause_id_is_retried_then_stitched():
+    composer = ScriptedComposer("Not allowed (PP-06 §1).", "Not allowed (PP-06 §1).")
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, composer)
+    assert reply.answer.startswith("From the sales data:")
+    assert composer.calls[1][2] == ["PP-06 §1"]

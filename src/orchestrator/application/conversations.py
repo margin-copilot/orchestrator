@@ -61,6 +61,6 @@ async def chat(
         question_asked = await condenser.standalone(question, history[-HISTORY_TURNS:])
     else:
         question_asked = question
-    reply = await ask(question_asked, router, agents, composer)
+    reply = await ask(question_asked, router, agents, composer, user_question=question)
     await store.add(owner, conversation_id, Turn(question, reply.answer, now))
     return reply, conversation_id

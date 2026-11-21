@@ -120,3 +120,13 @@ def test_the_routes_are_one_choice_with_an_explicit_combination():
         "- approvals",
         "- out_of_scope",
     ]
+
+
+async def test_supplier_change_questions_stay_with_the_policy_agent():
+    model = ScriptedChatClient([chooses("policy-agent")])
+    await FoundryRouter(model).route("What did SUP-014 change for North dairy in October?")
+    instructions = " ".join(model.calls[0][1]["instructions"].split())
+    assert (
+        '"What did SUP-014 change for North dairy in October?" is policy-agent too, even with a '
+        "supplier ID or a month" in instructions
+    )

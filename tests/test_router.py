@@ -9,12 +9,12 @@ from orchestrator.application.ask import AgentUnavailable, Plan
 from tests.fakes import ScriptedChatClient
 
 
-def chooses(*agents, route="agents"):
-    return Message("assistant", [json.dumps({"route": route, "agents": list(agents)})])
+def chooses(route):
+    return Message("assistant", [json.dumps({"route": route})])
 
 
 async def test_the_router_returns_a_plan():
-    model = ScriptedChatClient([chooses("policy-agent", "data-agent")])
+    model = ScriptedChatClient([chooses("data-and-policy")])
     plan = await FoundryRouter(model).route("Was the North flour increase in February allowed?")
     assert plan == Plan("agents", ("data-agent", "policy-agent"))
 
@@ -62,7 +62,7 @@ async def test_router_instructions_carry_the_action_tie_breaks():
 
 
 async def test_the_router_can_choose_approvals():
-    model = ScriptedChatClient([chooses(route="approvals")])
+    model = ScriptedChatClient([chooses("approvals")])
     assert await FoundryRouter(model).route("Approve all my pending proposals.") == Plan(
         "approvals"
     )
@@ -80,28 +80,43 @@ async def test_a_router_model_failure_is_unavailable():
 
 
 async def test_router_instructions_carry_the_scope_and_combination_rules():
-    model = ScriptedChatClient([chooses(route="out_of_scope")])
+    model = ScriptedChatClient([chooses("out_of_scope")])
     assert await FoundryRouter(model).route("Weather?") == Plan("out_of_scope")
     instructions = " ".join(model.calls[0][1]["instructions"].split())
-    assert 'A general pricing concept ("What is a KVI?") is policy-agent' in instructions
+    assert 'general pricing concepts our policies define ("What is a KVI?")' in instructions
     assert (
         '"Was the North flour increase in February 2026 allowed?": '
-        "its date and size are in the data" in instructions
-    )
-    assert '"Was the 30% yogurt promotion in October allowed?" is policy-agent only' in instructions
+        "its date and size are in the data"
+    ) in instructions
+    assert 'it\'s policy-agent: "Was the 30% yogurt promotion in October allowed?"' in instructions
 
 
 async def test_rule_questions_never_route_to_approvals():
     model = ScriptedChatClient([chooses("policy-agent")])
     await FoundryRouter(model).route("Can we raise flour prices during Ramadan?")
     instructions = " ".join(model.calls[0][1]["instructions"].split())
-    assert (
-        "approvals: only when the user asks the copilot itself to approve, reject or apply a "
-        "proposal or price change, or to list proposals awaiting a decision" in instructions
-    )
-    assert (
-        "Questions about what is allowed, needs approval or is the target are policy-agent"
-        in instructions
-    )
     assert '"Can we raise flour prices during Ramadan?" is policy-agent' in instructions
     assert '"What is the price index target for Tier A products?" is policy-agent' in instructions
+
+
+def _lines():
+    from orchestrator.adapters.outbound.router import INSTRUCTIONS
+
+    return INSTRUCTIONS.splitlines()
+
+
+def test_the_approvals_line_names_no_other_route():
+    [approvals] = [line for line in _lines() if line.startswith("- approvals:")]
+    assert "policy-agent" not in approvals and "data-agent" not in approvals
+
+
+def test_the_routes_are_one_choice_with_an_explicit_combination():
+    starts = [line.split(":")[0] for line in _lines() if line.startswith("- ")]
+    assert starts == [
+        "- data-agent",
+        "- policy-agent",
+        "- data-and-policy",
+        "- action-agent",
+        "- approvals",
+        "- out_of_scope",
+    ]

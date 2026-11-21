@@ -3,6 +3,7 @@ from margin_copilot_shared.contracts import AgentReply
 
 from orchestrator.application.ask import (
     OUT_OF_SCOPE_ANSWER,
+    ROUTES,
     AgentUnavailable,
     ChatReply,
     Plan,
@@ -116,17 +117,14 @@ async def test_the_action_agent_is_routable_alone():
 
 
 def test_the_action_agent_never_runs_with_another_agent():
-    assert to_plan("agents", ["action-agent", "data-agent"]).agents == ("data-agent",)
-    assert to_plan("agents", ["policy-agent", "data-agent", "data-agent"]).agents == (
-        "data-agent",
-        "policy-agent",
-    )
-    assert to_plan("agents", ["action-agent"]).agents == ("action-agent",)
+    for plan in ROUTES.values():
+        assert "action-agent" not in plan.agents or plan.agents == ("action-agent",)
+    assert to_plan("data-and-policy") == Plan("agents", ("data-agent", "policy-agent"))
 
 
-def test_an_empty_plan_is_a_router_failure():
+def test_an_unknown_route_is_a_router_failure():
     with pytest.raises(AgentUnavailable) as failed:
-        to_plan("agents", [])
+        to_plan("data-and-action")
     assert failed.value.name == "router"
 
 

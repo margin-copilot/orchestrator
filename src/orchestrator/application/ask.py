@@ -62,15 +62,22 @@ class ChatReply:
     citations: tuple[str, ...]
 
 
-def to_plan(route: str, agents: Sequence[str]) -> Plan:
-    if route != "agents":
-        return Plan(route)  # type: ignore[arg-type]
-    chosen = tuple(name for name in AGENTS if name in agents)
-    if len(chosen) > 1:  # drafts only when asked for alone, never as a side effect of a question
-        chosen = tuple(name for name in chosen if name != "action-agent")
-    if not chosen:
-        raise AgentUnavailable("router", "no agent chosen")
-    return Plan("agents", chosen)
+# One choice per question. No route pairs the action agent with another: drafts only when asked
+# for alone, never as a side effect of a question.
+ROUTES = {
+    "data-agent": Plan("agents", ("data-agent",)),
+    "policy-agent": Plan("agents", ("policy-agent",)),
+    "data-and-policy": Plan("agents", ("data-agent", "policy-agent")),
+    "action-agent": Plan("agents", ("action-agent",)),
+    "approvals": Plan("approvals"),
+    "out_of_scope": Plan("out_of_scope"),
+}
+
+
+def to_plan(route: str) -> Plan:
+    if route not in ROUTES:
+        raise AgentUnavailable("router", f"chose {route!r}")
+    return ROUTES[route]
 
 
 async def ask(

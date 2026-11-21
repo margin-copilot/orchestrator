@@ -85,7 +85,7 @@ async def test_router_instructions_carry_the_scope_and_combination_rules():
     instructions = " ".join(model.calls[0][1]["instructions"].split())
     assert 'A general pricing concept ("What is a KVI?") is policy-agent' in instructions
     assert (
-        '"Was the North flour increase in February 2026 allowed?": its date and size are in the data'
-        in instructions
+        '"Was the North flour increase in February 2026 allowed?": '
+        "its date and size are in the data" in instructions
     )
     assert '"Was the 30% yogurt promotion in October allowed?" is policy-agent only' in instructions

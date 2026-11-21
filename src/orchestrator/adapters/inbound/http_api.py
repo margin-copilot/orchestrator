@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from orchestrator.application.ask import Agent, AgentUnavailable, Router, ask
+from orchestrator.application.ask import Agent, AgentUnavailable, Composer, Router, ask
 
 MAX_BODY_BYTES = 16_384
 MAX_QUESTION_CHARS = 2_000
@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 
 def create_http_app(
-    router: Router, agents: Mapping[str, Agent], validator: TokenValidator
+    router: Router, agents: Mapping[str, Agent], composer: Composer, validator: TokenValidator
 ) -> Starlette:
     async def chat(request: Request) -> JSONResponse:
         body = await request.body()
@@ -38,7 +38,7 @@ def create_http_app(
         if len(question) > MAX_QUESTION_CHARS:
             return JSONResponse({"error": "question too long"}, status_code=413)
         try:
-            reply = await ask(question, router, agents)
+            reply = await ask(question, router, agents, composer)
         except AgentUnavailable as unavailable:
             log.warning("%s unavailable: %s", unavailable.name, unavailable)
             return JSONResponse({"error": f"{unavailable.name} unavailable"}, status_code=502)

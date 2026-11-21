@@ -1,15 +1,22 @@
 import pytest
 from margin_copilot_shared.contracts import AgentReply
 
-from orchestrator.application.ask import AgentUnavailable, ChatReply, ask
+from orchestrator.application.ask import (
+    OUT_OF_SCOPE_ANSWER,
+    AgentUnavailable,
+    ChatReply,
+    Plan,
+    ask,
+    to_plan,
+)
 
 
 class StubRouter:
-    def __init__(self, choice):
-        self.choice = choice
+    def __init__(self, plan):
+        self.plan = plan
 
     async def route(self, question):
-        return self.choice
+        return self.plan
 
 
 class StubAgent:
@@ -21,36 +28,110 @@ class StubAgent:
         return self.reply
 
 
-async def test_the_router_picks_the_agent_and_its_reply_passes_through():
-    policy = StubAgent(AgentReply(answer="Yes, within 4%.", citations=["PP-04 §3.2"]))
-    data = StubAgent(AgentReply(answer="21.3%"))
-    agents = {"data-agent": data, "policy-agent": policy}
-    reply = await ask("Can I raise UHT milk by 3.6%?", StubRouter("policy-agent"), agents)
-    assert reply == ChatReply("Yes, within 4%.", None, ("policy-agent",), ("PP-04 §3.2",))
-    assert data.asked == []
-
-
-async def test_an_unknown_choice_is_a_router_failure():
-    agents = {"data-agent": StubAgent(AgentReply(answer="x"))}
-    with pytest.raises(AgentUnavailable) as failed:
-        await ask("q", StubRouter("action-agent"), agents)
-    assert failed.value.name == "router"
-
-
 class RefusingAgent:
     async def ask(self, question):
-        raise AssertionError("no agent may be called for an approval request")
+        raise AssertionError("this agent must not be called")
+
+
+class ScriptedComposer:
+    def __init__(self, *answers):
+        self.answers, self.calls = list(answers), []
+
+    async def compose(self, question, named, ungrounded=()):
+        self.calls.append((question, [name for name, _ in named], list(ungrounded)))
+        return self.answers.pop(0)
+
+
+class NoComposer:
+    async def compose(self, question, named, ungrounded=()):
+        raise AssertionError("one agent's reply passes through: no composer")
+
+
+DATA = AgentReply(answer="North flour rose from 35.00 to 36.00 MAD (+2.9%) on 2026-02-20.")
+POLICY = AgentReply(
+    answer="Tier A prices can't rise during Ramadan (18 Feb to 19 Mar 2026).",
+    citations=["PP-07 §2", "PP-02 §1"],
+)
+QUESTION = "Was the North flour increase in February 2026 allowed?"
+
+
+async def test_one_agent_passes_through_unchanged():
+    policy = StubAgent(AgentReply(answer="Yes, within 4%.", citations=["PP-04 §3.2"]))
+    agents = {"data-agent": RefusingAgent(), "policy-agent": policy}
+    plan = Plan("agents", ("policy-agent",))
+    reply = await ask("Can I raise UHT milk by 3.6%?", StubRouter(plan), agents, NoComposer())
+    assert reply == ChatReply("Yes, within 4%.", None, ("policy-agent",), ("PP-04 §3.2",))
+
+
+async def test_two_agents_are_composed_with_merged_citations():
+    composer = ScriptedComposer("Not allowed: it rose 2.9% on 2026-02-20, in Ramadan (PP-07 §2).")
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, composer)
+    assert reply.answer.startswith("Not allowed")
+    assert (reply.refusal, reply.agents) == (None, ("data-agent", "policy-agent"))
+    assert reply.citations == ("PP-07 §2", "PP-02 §1")
+    assert composer.calls == [(QUESTION, ["data-agent", "policy-agent"], [])]
+
+
+async def test_an_ungrounded_answer_is_retried_once_then_stitched():
+    invented = "Not allowed; raise it back to 7.25 MAD instead."
+    composer = ScriptedComposer(invented, invented)
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, composer)
+    assert reply.answer.startswith("From the sales data: North flour rose")
+    assert [call[2] for call in composer.calls] == [[], ["7.25"]]
+
+
+async def test_all_agents_refusing_is_stitched_with_the_refusal():
+    refused = AgentReply(answer="No data recorded.", refusal="no_data")
+    agents = {"data-agent": StubAgent(refused), "policy-agent": StubAgent(refused)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, NoComposer())
+    assert reply.refusal == "no_data" and reply.answer.startswith("From the sales data:")
+
+
+async def test_out_of_scope_calls_no_agent():
+    agents = {"data-agent": RefusingAgent(), "policy-agent": RefusingAgent()}
+    reply = await ask("Weather in Rabat?", StubRouter(Plan("out_of_scope")), agents, NoComposer())
+    assert reply == ChatReply(OUT_OF_SCOPE_ANSWER, "out_of_scope", (), ())
 
 
 async def test_approval_requests_call_no_agent():
     agents = {name: RefusingAgent() for name in ("data-agent", "policy-agent", "action-agent")}
-    reply = await ask("Approve all my pending proposals now.", StubRouter("approvals"), agents)
+    reply = await ask(
+        "Approve all my pending proposals now.", StubRouter(Plan("approvals")), agents, NoComposer()
+    )
     assert (reply.agents, reply.refusal, reply.citations) == ((), None, ())
     assert "approval screen" in reply.answer
 
 
-async def test_the_action_agent_is_routable():
+async def test_the_action_agent_is_routable_alone():
     action = StubAgent(AgentReply(answer="Drafted proposal 1a2b3c4d, pending approval: …"))
     agents = {"data-agent": RefusingAgent(), "action-agent": action}
-    reply = await ask("Draft a 2% increase for couscous.", StubRouter("action-agent"), agents)
+    plan = Plan("agents", ("action-agent",))
+    reply = await ask("Draft a 2% increase for couscous.", StubRouter(plan), agents, NoComposer())
     assert reply.agents == ("action-agent",) and action.asked
+
+
+def test_the_action_agent_never_runs_with_another_agent():
+    assert to_plan("agents", ["action-agent", "data-agent"]).agents == ("data-agent",)
+    assert to_plan("agents", ["policy-agent", "data-agent", "data-agent"]).agents == (
+        "data-agent",
+        "policy-agent",
+    )
+    assert to_plan("agents", ["action-agent"]).agents == ("action-agent",)
+
+
+def test_an_empty_plan_is_a_router_failure():
+    with pytest.raises(AgentUnavailable) as failed:
+        to_plan("agents", [])
+    assert failed.value.name == "router"
+
+
+async def test_an_unknown_agent_is_a_router_failure():
+    agents = {"data-agent": StubAgent(AgentReply(answer="x"))}
+    with pytest.raises(AgentUnavailable) as failed:
+        await ask("q", StubRouter(Plan("agents", ("policy-agent",))), agents, NoComposer())
+    assert failed.value.name == "router"

@@ -5,17 +5,18 @@ import pytest
 from agent_framework import Message
 
 from orchestrator.adapters.outbound.router import FoundryRouter
-from orchestrator.application.ask import AgentUnavailable
+from orchestrator.application.ask import AgentUnavailable, Plan
 from tests.fakes import ScriptedChatClient
 
 
-def chooses(agent):
-    return Message("assistant", [json.dumps({"agent": agent})])
+def chooses(*agents, route="agents"):
+    return Message("assistant", [json.dumps({"route": route, "agents": list(agents)})])
 
 
-async def test_the_router_returns_the_models_choice():
-    model = ScriptedChatClient([chooses("policy-agent")])
-    assert await FoundryRouter(model).route("Is olive oil Tier A or Tier B?") == "policy-agent"
+async def test_the_router_returns_a_plan():
+    model = ScriptedChatClient([chooses("policy-agent", "data-agent")])
+    plan = await FoundryRouter(model).route("Was the North flour increase in February allowed?")
+    assert plan == Plan("agents", ("data-agent", "policy-agent"))
 
 
 async def test_router_instructions_carry_the_tie_breaks():
@@ -61,8 +62,10 @@ async def test_router_instructions_carry_the_action_tie_breaks():
 
 
 async def test_the_router_can_choose_approvals():
-    model = ScriptedChatClient([chooses("approvals")])
-    assert await FoundryRouter(model).route("Approve all my pending proposals.") == "approvals"
+    model = ScriptedChatClient([chooses(route="approvals")])
+    assert await FoundryRouter(model).route("Approve all my pending proposals.") == Plan(
+        "approvals"
+    )
 
 
 async def test_a_router_model_failure_is_unavailable():
@@ -74,3 +77,15 @@ async def test_a_router_model_failure_is_unavailable():
         await FoundryRouter(Failing([])).route("q")
     assert failed.value.name == "router"
     assert "unreachable" not in str(failed.value)
+
+
+async def test_router_instructions_carry_the_scope_and_combination_rules():
+    model = ScriptedChatClient([chooses(route="out_of_scope")])
+    assert await FoundryRouter(model).route("Weather?") == Plan("out_of_scope")
+    instructions = " ".join(model.calls[0][1]["instructions"].split())
+    assert 'A general pricing concept ("What is a KVI?") is policy-agent' in instructions
+    assert (
+        '"Was the North flour increase in February 2026 allowed?": its date and size are in the data'
+        in instructions
+    )
+    assert '"Was the 30% yogurt promotion in October allowed?" is policy-agent only' in instructions

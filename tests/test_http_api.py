@@ -5,6 +5,7 @@ from margin_copilot_shared.testing.issuer import LocalIssuer
 
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import FakeAgent
+from orchestrator.adapters.outbound.composer import FakeComposer
 from orchestrator.adapters.outbound.router import FakeRouter
 from orchestrator.application.ask import AgentUnavailable
 
@@ -25,6 +26,7 @@ def client_for(issuer, data_agent=None, router=None, policy_agent=None):
     app = create_http_app(
         router or FakeRouter(),
         agents,
+        FakeComposer(),
         issuer.validator(audience=ORCHESTRATOR, allowed_callers=frozenset({CLI})),
     )
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://orch")

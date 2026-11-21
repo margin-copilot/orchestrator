@@ -23,6 +23,8 @@ AZURE = {
     "DATA_AGENT_SCOPE": "api://data-agent-client-id/access_as_user",
     "POLICY_AGENT_URL": "http://policy-agent/",
     "POLICY_AGENT_SCOPE": "api://policy-agent-client-id/access_as_user",
+    "ACTION_AGENT_URL": "http://action-agent/",
+    "ACTION_AGENT_SCOPE": "api://action-agent-client-id/access_as_user",
     "FOUNDRY_PROJECT_ENDPOINT": "https://example.services.ai.azure.com/api/projects/example",
     "FOUNDRY_MODEL": "gpt-5-mini",
 }

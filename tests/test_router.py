@@ -49,3 +49,28 @@ async def test_a_slow_router_fails_within_its_limit():
     with pytest.raises(AgentUnavailable) as failed:
         await FoundryRouter(Slow([chooses("data-agent")]), limit=0.05).route("q")
     assert failed.value.name == "router"
+
+
+async def test_router_instructions_carry_the_action_tie_breaks():
+    model = ScriptedChatClient([chooses("action-agent")])
+    await FoundryRouter(model).route("Draft a 7% increase for olive oil.")
+    instructions = model.calls[0][1]["instructions"]
+    assert '"Can I raise olive oil by 7%?" is policy-agent (a rule)' in instructions
+    assert '"Draft a 7% increase for olive oil" is action-agent' in instructions
+    assert '"Approve a 9% increase on fresh milk" is approvals' in instructions
+
+
+async def test_the_router_can_choose_approvals():
+    model = ScriptedChatClient([chooses("approvals")])
+    assert await FoundryRouter(model).route("Approve all my pending proposals.") == "approvals"
+
+
+async def test_a_router_model_failure_is_unavailable():
+    class Failing(ScriptedChatClient):
+        async def _inner_get_response(self, **kwargs):
+            raise ConnectionError("model endpoint unreachable")
+
+    with pytest.raises(AgentUnavailable) as failed:
+        await FoundryRouter(Failing([])).route("q")
+    assert failed.value.name == "router"
+    assert "unreachable" not in str(failed.value)

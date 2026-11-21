@@ -35,3 +35,22 @@ async def test_an_unknown_choice_is_a_router_failure():
     with pytest.raises(AgentUnavailable) as failed:
         await ask("q", StubRouter("action-agent"), agents)
     assert failed.value.name == "router"
+
+
+class RefusingAgent:
+    async def ask(self, question):
+        raise AssertionError("no agent may be called for an approval request")
+
+
+async def test_approval_requests_call_no_agent():
+    agents = {name: RefusingAgent() for name in ("data-agent", "policy-agent", "action-agent")}
+    reply = await ask("Approve all my pending proposals now.", StubRouter("approvals"), agents)
+    assert (reply.agents, reply.refusal, reply.citations) == ((), None, ())
+    assert "approval screen" in reply.answer
+
+
+async def test_the_action_agent_is_routable():
+    action = StubAgent(AgentReply(answer="Drafted proposal 1a2b3c4d, pending approval: …"))
+    agents = {"data-agent": RefusingAgent(), "action-agent": action}
+    reply = await ask("Draft a 2% increase for couscous.", StubRouter("action-agent"), agents)
+    assert reply.agents == ("action-agent",) and action.asked

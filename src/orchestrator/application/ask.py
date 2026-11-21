@@ -1,5 +1,6 @@
-"""Milestone 5 orchestrator: a router picks one agent per question, and that agent's reply passes
-through unchanged (D-035). Composing answers from several agents arrives in milestone 7."""
+"""Milestone 6 orchestrator: a router picks one agent per question, and that agent's reply passes
+through unchanged (D-035). Approval requests get a fixed answer from code: no agent can approve.
+Composing answers from several agents arrives in milestone 7."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -7,7 +8,12 @@ from typing import Protocol
 
 from margin_copilot_shared.contracts import AgentReply, Refusal
 
-AGENTS = ("data-agent", "policy-agent")
+AGENTS = ("data-agent", "policy-agent", "action-agent")
+APPROVALS = "approvals"
+APPROVALS_ANSWER = (
+    "I can't approve, reject or apply proposals. A person with the right role does that on the "
+    "approval screen, where proposals-api checks the role and region in their sign-in."
+)
 
 
 class Agent(Protocol):
@@ -36,6 +42,8 @@ class ChatReply:
 
 async def ask(question: str, router: Router, agents: Mapping[str, Agent]) -> ChatReply:
     name = await router.route(question)
+    if name == APPROVALS:
+        return ChatReply(APPROVALS_ANSWER, None, (), ())
     if name not in agents:
         raise AgentUnavailable("router", f"chose {name!r}")
     reply = await agents[name].ask(question)

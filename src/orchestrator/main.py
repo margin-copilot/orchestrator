@@ -13,6 +13,7 @@ from starlette.applications import Starlette
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import A2AAgent, FakeAgent
 from orchestrator.adapters.outbound.router import FakeRouter, FoundryRouter
+from orchestrator.application.ask import AGENTS
 
 ROUTER_TIMEOUT = 30
 
@@ -28,7 +29,11 @@ def create_app() -> Starlette:
         http = httpx.AsyncClient(timeout=200)
         agents = {
             name: A2AAgent(name, env[f"{prefix}_URL"], env[f"{prefix}_SCOPE"], obo.exchange, http)
-            for name, prefix in (("data-agent", "DATA_AGENT"), ("policy-agent", "POLICY_AGENT"))
+            for name, prefix in (
+                ("data-agent", "DATA_AGENT"),
+                ("policy-agent", "POLICY_AGENT"),
+                ("action-agent", "ACTION_AGENT"),
+            )
         }
         router = FoundryRouter(
             FoundryChatClient(
@@ -45,6 +50,6 @@ def create_app() -> Starlette:
         validator = LocalIssuer().validator(
             audience="orchestrator", allowed_callers=frozenset({"cli"})
         )
-        agents = {name: FakeAgent(name) for name in ("data-agent", "policy-agent")}
+        agents = {name: FakeAgent(name) for name in AGENTS}
         return create_http_app(FakeRouter(), agents, validator)
     raise ValueError(f"ADAPTERS must be azure or fake, not {adapters!r}")

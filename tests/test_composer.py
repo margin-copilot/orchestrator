@@ -5,7 +5,7 @@ import pytest
 from agent_framework import Message
 from margin_copilot_shared.contracts import AgentReply
 
-from orchestrator.adapters.outbound.composer import FoundryComposer
+from orchestrator.adapters.outbound.composer import FakeComposer, FoundryComposer
 from orchestrator.application.ask import AgentUnavailable
 from tests.fakes import ScriptedChatClient
 
@@ -36,15 +36,23 @@ async def test_the_composer_sees_each_reply_and_no_tools():
     )
 
 
-async def test_what_to_do_starts_from_the_policy_limits():
-    model = ScriptedChatClient([says("Raise it within 4% (PP-04 §3.2).")])
-    await FoundryComposer(model).compose("What should we do?", NAMED)
-    _, options = model.calls[0]
+async def test_the_composer_writes_only_the_policy_part():
+    model = ScriptedChatClient([says("Not allowed (PP-07 §2).")])
+    await FoundryComposer(model).compose("Was it allowed?", NAMED)
+    messages, options = model.calls[0]
     instructions = " ".join(options["instructions"].split())
+    assert "The user sees the data agent's reply exactly as written" in instructions
+    assert "Don't repeat the data agent's reply" in instructions
     assert (
-        "For what to do, first state the limits and approvals the policy reply gives "
-        "(its percentages and who approves), then any other suggestion."
+        "When it asks what to do, state the limits and approvals the policy reply gives "
+        "(its percentages and who approves)."
     ) in instructions
+    assert "Quote numbers exactly as written, without quotation marks" in instructions
+
+
+async def test_the_fake_composer_adds_only_the_policy_part():
+    part = await FakeComposer().compose("Was it allowed?", NAMED)
+    assert part == "No Tier A increases in Ramadan."
 
 
 async def test_a_retry_names_the_ungrounded_numbers():

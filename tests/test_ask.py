@@ -64,12 +64,14 @@ async def test_one_agent_passes_through_unchanged():
     assert reply == ChatReply("Yes, within 4%.", None, ("policy-agent",), ("PP-04 §3.2",))
 
 
-async def test_two_agents_are_composed_with_merged_citations():
+async def test_the_data_reply_leads_unchanged_and_the_composer_adds_the_policy_part():
     composer = ScriptedComposer("Not allowed: it rose 2.9% on 2026-02-20, in Ramadan (PP-07 §2).")
     agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
     plan = Plan("agents", ("data-agent", "policy-agent"))
     reply = await ask(QUESTION, StubRouter(plan), agents, composer)
-    assert reply.answer.startswith("Not allowed")
+    assert reply.answer == (
+        f"{DATA.answer}\n\nNot allowed: it rose 2.9% on 2026-02-20, in Ramadan (PP-07 §2)."
+    )
     assert (reply.refusal, reply.agents) == (None, ("data-agent", "policy-agent"))
     assert reply.citations == ("PP-07 §2", "PP-02 §1")
     assert composer.calls == [(QUESTION, ["data-agent", "policy-agent"], [])]

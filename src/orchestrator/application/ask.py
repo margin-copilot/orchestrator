@@ -1,6 +1,7 @@
 """The orchestrator's turn (D-040): the router plans, code calls the chosen agents. One agent's
-reply passes through unchanged; several are composed into one answer whose numbers code checks
-against the replies (D-011). Approval requests and out-of-scope questions get fixed answers."""
+reply passes through unchanged. With two, the data agent's reply leads unchanged and a composer
+adds what the policies say, its numbers checked against the replies (D-011). Approval requests
+and out-of-scope questions get fixed answers."""
 
 import asyncio
 from collections.abc import Mapping, Sequence
@@ -114,11 +115,13 @@ async def ask(
         return ChatReply(stitched(named), refusal, plan.agents, citations)
     sources = [user_question or question, *(f"{r.answer} {' '.join(r.citations)}" for r in replies)]
     try:
-        answer = await composer.compose(question, named)
-        if ungrounded := _ungrounded(answer, sources):
-            answer = await composer.compose(question, named, ungrounded)
-            if _ungrounded(answer, sources):
-                answer = stitched(named)  # never an answer with a number no agent gave
-    except AgentUnavailable:
-        answer = stitched(named)  # two good replies beat a 502
+        part = await composer.compose(question, named)
+        if ungrounded := _ungrounded(part, sources):
+            part = await composer.compose(question, named, ungrounded)
+            if _ungrounded(part, sources):  # never an answer with a number no agent gave
+                return ChatReply(stitched(named), None, plan.agents, citations)
+    except AgentUnavailable:  # two good replies beat a 502
+        return ChatReply(stitched(named), None, plan.agents, citations)
+    lead = dict(named).get("data-agent")
+    answer = f"{lead.answer}\n\n{part}" if lead else part
     return ChatReply(answer, None, plan.agents, citations)

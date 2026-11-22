@@ -192,3 +192,63 @@ async def test_a_turn_over_its_limit_is_502_and_stores_nothing(issuer):
     response = await client.post("/chat", json={"question": "q"}, headers=bearer(issuer))
     assert (response.status_code, response.json()) == (502, {"error": "orchestrator unavailable"})
     assert store._turns == {}
+
+
+WEB = "https://web.example"
+
+
+def cors_client(issuer, store=None):
+    from orchestrator.adapters.outbound.fakes import MemoryConversationStore as Store
+
+    app = create_http_app(
+        FakeRouter(),
+        {"data-agent": FakeAgent("data-agent"), "policy-agent": FakeAgent("policy-agent")},
+        FakeComposer(),
+        FakeCondenser(),
+        store or Store(),
+        issuer.validator(audience=ORCHESTRATOR, allowed_callers=frozenset({CLI})),
+        allowed_origins=[WEB],
+    )
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://orch")
+
+
+PREFLIGHT = {
+    "Access-Control-Request-Method": "POST",
+    "Access-Control-Request-Headers": "authorization,content-type",
+}
+
+
+async def test_a_preflight_from_an_allowed_origin_skips_the_token_check(issuer):
+    response = await cors_client(issuer).options("/chat", headers={"Origin": WEB, **PREFLIGHT})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == WEB
+
+
+async def test_another_origin_gets_no_cors_headers(issuer):
+    response = await cors_client(issuer).options(
+        "/chat", headers={"Origin": "https://evil.example", **PREFLIGHT}
+    )
+    assert response.status_code == 400
+    assert "access-control-allow-origin" not in response.headers
+
+
+async def test_a_cross_origin_post_still_needs_a_token(issuer):
+    response = await cors_client(issuer).post(
+        "/chat", json={"question": "q"}, headers={"Origin": WEB}
+    )
+    assert response.status_code == 401
+    assert response.headers["access-control-allow-origin"] == WEB
+
+
+async def test_a_store_failure_is_502_conversations_unavailable(issuer):
+    class Broken:
+        async def turns(self, owner, conversation_id):
+            return []
+
+        async def add(self, owner, conversation_id, turn):
+            raise RuntimeError("table unavailable")
+
+    response = await cors_client(issuer, store=Broken()).post(
+        "/chat", json={"question": "q"}, headers=bearer(issuer)
+    )
+    assert (response.status_code, response.json()) == (502, {"error": "conversations unavailable"})

@@ -59,7 +59,10 @@ def create_app() -> Starlette:
         )
         store = TableConversationStore(table)
         validator = entra_validator(tenant_id, client_id, callers)
-        return create_http_app(router, agents, composer, condenser, store, validator)
+        origins = [origin.strip() for origin in env["ALLOWED_ORIGINS"].split(",") if origin.strip()]
+        return create_http_app(
+            router, agents, composer, condenser, store, validator, allowed_origins=origins
+        )
     if adapters == "fake":
         # A fresh in-memory key per process: nobody outside this process can mint a token for it.
         validator = LocalIssuer().validator(
@@ -73,5 +76,6 @@ def create_app() -> Starlette:
             FakeCondenser(),
             MemoryConversationStore(),
             validator,
+            allowed_origins=["http://localhost:5173"],
         )
     raise ValueError(f"ADAPTERS must be azure or fake, not {adapters!r}")

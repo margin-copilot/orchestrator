@@ -29,6 +29,7 @@ AZURE = {
     "FOUNDRY_MODEL": "gpt-5-mini",
     "TABLE_ENDPOINT": "https://stexample.table.core.windows.net/",
     "CONVERSATIONS_TABLE": "conversations",
+    "ALLOWED_ORIGINS": "https://web.example,http://localhost:5173",
 }
 
 

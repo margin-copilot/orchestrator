@@ -4,7 +4,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -13,6 +13,7 @@ from margin_copilot_shared.security.middleware import AuthMiddleware
 from margin_copilot_shared.security.tokens import TokenValidator
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -22,6 +23,7 @@ from orchestrator.application.conversations import (
     Condenser,
     ConversationNotFound,
     ConversationStore,
+    ConversationsUnavailable,
     chat,
 )
 
@@ -41,6 +43,7 @@ def create_http_app(
     validator: TokenValidator,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     turn_limit: float = TURN_LIMIT,
+    allowed_origins: Sequence[str] = (),
 ) -> Starlette:
     async def chat_turn(request: Request) -> JSONResponse:
         body = await request.body()
@@ -79,12 +82,24 @@ def create_http_app(
             return JSONResponse({"error": "orchestrator unavailable"}, status_code=502)
         except ConversationNotFound:
             return JSONResponse({"error": "conversation not found"}, status_code=404)
+        except ConversationsUnavailable as unavailable:
+            log.warning("conversations unavailable: %s", unavailable)
+            return JSONResponse({"error": "conversations unavailable"}, status_code=502)
         except AgentUnavailable as unavailable:
             log.warning("%s unavailable: %s", unavailable.name, unavailable)
             return JSONResponse({"error": f"{unavailable.name} unavailable"}, status_code=502)
         return JSONResponse(asdict(reply) | {"conversation_id": conversation_id})
 
-    return Starlette(
-        routes=[Route("/chat", chat_turn, methods=["POST"])],
-        middleware=[Middleware(AuthMiddleware, validator=validator)],
-    )
+    middleware = [Middleware(AuthMiddleware, validator=validator)]
+    if allowed_origins:
+        # Outermost, so a browser's preflight is answered before the token check; CORS is a
+        # convenience for the web app, the token check still decides (D-042).
+        cors = Middleware(
+            CORSMiddleware,
+            allow_origins=list(allowed_origins),
+            allow_methods=["GET", "POST"],
+            allow_headers=["Authorization", "Content-Type"],
+            max_age=600,
+        )
+        middleware.insert(0, cors)
+    return Starlette(routes=[Route("/chat", chat_turn, methods=["POST"])], middleware=middleware)

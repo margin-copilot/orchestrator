@@ -37,6 +37,10 @@ class ConversationNotFound(Exception):
     """Unknown, someone else's, malformed or expired: one answer for all, so it reveals nothing."""
 
 
+class ConversationsUnavailable(Exception):
+    """The conversation store failed; the cause is logged by type only."""
+
+
 async def chat(
     question: str,
     conversation_id: str | None,
@@ -54,7 +58,10 @@ async def chat(
     else:
         if not CONVERSATION_ID.fullmatch(conversation_id):
             raise ConversationNotFound
-        history = await store.turns(owner, conversation_id)
+        try:
+            history = await store.turns(owner, conversation_id)
+        except Exception as error:
+            raise ConversationsUnavailable(type(error).__name__) from None
         if not history or now - history[0].at > EXPIRES_AFTER:
             raise ConversationNotFound
     if history:
@@ -62,5 +69,8 @@ async def chat(
     else:
         question_asked = question
     reply = await ask(question_asked, router, agents, composer, user_question=question)
-    await store.add(owner, conversation_id, Turn(question, reply.answer, now))
+    try:
+        await store.add(owner, conversation_id, Turn(question, reply.answer, now))
+    except Exception as error:
+        raise ConversationsUnavailable(type(error).__name__) from None
     return reply, conversation_id

@@ -1,6 +1,6 @@
 [project]
 name = "orchestrator"
-version = "0.5.4"
+version = "0.6.0"
 description = "Margin Copilot orchestrator: chat API that calls the agents over A2A as the signed-in user."
 requires-python = ">=3.12,<3.13"
 dependencies = [

@@ -14,13 +14,14 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
   - 400 for a malformed body, 413 when too large.
   - 401 or 403 for an untrusted token or a disallowed caller.
   - 404 `{"error": "conversation not found"}` for an unknown, someone else's, malformed or expired conversation.
+  - 502 `{"error": "conversations unavailable"}` when the conversation store fails.
   - 502 `{"error": "<name> unavailable"}` (`data-agent`, `policy-agent`, `action-agent`, `router`, `condenser` or `orchestrator` for a turn over its limit), also when an agent's reply breaks the shared `AgentReply` contract. The details go only to the log.
 - A router (one gpt-5-mini call, structured output) picks one of six routes per question (D-040): the data agent, the policy agent, both, the action agent alone (it only drafts pending proposals), a fixed pointer to the approval screen for requests to approve, reject or list proposals, or a fixed decline for out-of-scope questions. One agent's reply passes through unchanged. Two replies are combined by a composer call; code checks that every number in the result appears in a reply or in what the user typed (percentages against percentages, clause IDs as IDs), retries once, and otherwise returns the replies side by side, as it does when the composer fails.
 - Conversations (D-041): turns are stored in Table Storage under the caller's `oid`, so only the owner can continue one; follow-ups are rewritten into a standalone question from the last 10 turns; a conversation can be continued for 7 days after its first turn. A turn has 230 seconds; past that it's a 502 and nothing is stored.
 
 ## Configuration
 
-Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`.
+Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`, `ALLOWED_ORIGINS` (exact browser origins allowed to call `/chat`, comma-separated; CORS only, the token check still decides).
 
 ## Run and test
 

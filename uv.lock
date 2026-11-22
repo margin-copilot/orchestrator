@@ -745,7 +745,7 @@ wheels = [
 
 [[package]]
 name = "orchestrator"
-version = "0.5.4"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },

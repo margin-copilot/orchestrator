@@ -106,6 +106,10 @@ async def ask(
     if len(named) == 1:
         reply = replies[0]
         return ChatReply(reply.answer, reply.refusal, plan.agents, citations)
+    # The data agent's no_access means the question is about regions the user can't see; another
+    # agent's reply beside it would read as an answer anyway.
+    if (data := dict(named).get("data-agent")) and data.refusal == "no_access":
+        return ChatReply(data.answer, data.refusal, plan.agents, tuple(data.citations))
     if refusal := combined_refusal(replies):
         return ChatReply(stitched(named), refusal, plan.agents, citations)
     sources = [user_question or question, *(f"{r.answer} {' '.join(r.citations)}" for r in replies)]

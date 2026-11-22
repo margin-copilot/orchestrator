@@ -93,6 +93,20 @@ async def test_all_agents_refusing_is_stitched_with_the_refusal():
     assert reply.refusal == "no_data" and reply.answer.startswith("From the sales data:")
 
 
+@pytest.mark.parametrize(
+    "policy",
+    [POLICY, AgentReply(answer="No policy covers this; check prices.", refusal="no_data")],
+)
+async def test_the_data_agent_refusing_access_answers_alone(policy):
+    refused = AgentReply(answer="I can't see North data.", refusal="no_access")
+    agents = {"data-agent": StubAgent(refused), "policy-agent": StubAgent(policy)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, NoComposer())
+    assert reply == ChatReply(
+        "I can't see North data.", "no_access", ("data-agent", "policy-agent"), ()
+    )
+
+
 async def test_out_of_scope_calls_no_agent():
     agents = {"data-agent": RefusingAgent(), "policy-agent": RefusingAgent()}
     reply = await ask("Weather in Rabat?", StubRouter(Plan("out_of_scope")), agents, NoComposer())

@@ -36,6 +36,17 @@ async def test_the_composer_sees_each_reply_and_no_tools():
     )
 
 
+async def test_what_to_do_starts_from_the_policy_limits():
+    model = ScriptedChatClient([says("Raise it within 4% (PP-04 §3.2).")])
+    await FoundryComposer(model).compose("What should we do?", NAMED)
+    _, options = model.calls[0]
+    instructions = " ".join(options["instructions"].split())
+    assert (
+        "For what to do, first state the limits and approvals the policy reply gives "
+        "(its percentages and who approves), then any other suggestion."
+    ) in instructions
+
+
 async def test_a_retry_names_the_ungrounded_numbers():
     model = ScriptedChatClient([says("Not allowed.")])
     await FoundryComposer(model).compose("Was it allowed?", NAMED, ungrounded=["7.25"])

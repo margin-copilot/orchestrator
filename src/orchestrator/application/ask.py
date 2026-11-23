@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from margin_copilot_shared.contracts import AgentReply, Refusal
+from margin_copilot_shared.telemetry import span
 
 from orchestrator.domain.grounding import ungrounded_numbers, unknown_citations
 from orchestrator.domain.replies import combined_citations, combined_refusal, stitched
@@ -81,6 +82,14 @@ def to_plan(route: str) -> Plan:
     return ROUTES[route]
 
 
+async def _asked(name: str, agent: Agent, question: str) -> AgentReply:
+    with span("orchestrator.agent", **{"margin.agent": name}) as asked:
+        reply = await agent.ask(question)
+        if reply.refusal:
+            asked.set_attribute("margin.refusal", reply.refusal)
+        return reply
+
+
 def _ungrounded(answer: str, sources: list[str]) -> list[str]:
     return ungrounded_numbers(answer, sources) + unknown_citations(answer, sources)
 
@@ -94,14 +103,16 @@ async def ask(
 ) -> ChatReply:
     """`question` may be a condensed follow-up; numbers are checked against `user_question`, what
     the user typed, so a number the condenser wrote never counts as given."""
-    plan = await router.route(question)
+    with span("orchestrator.route") as routed:
+        plan = await router.route(question)
+        routed.set_attribute("margin.plan", "+".join(plan.agents) or plan.kind)
     if plan.kind == APPROVALS:
         return ChatReply(APPROVALS_ANSWER, None, (), ())
     if plan.kind == "out_of_scope":
         return ChatReply(OUT_OF_SCOPE_ANSWER, "out_of_scope", (), ())
     if unknown := [name for name in plan.agents if name not in agents]:
         raise AgentUnavailable("router", f"chose {unknown[0]!r}")
-    replies = await asyncio.gather(*(agents[name].ask(question) for name in plan.agents))
+    replies = await asyncio.gather(*(_asked(name, agents[name], question) for name in plan.agents))
     named = list(zip(plan.agents, replies, strict=True))
     citations = combined_citations(replies)
     if len(named) == 1:
@@ -115,11 +126,14 @@ async def ask(
         return ChatReply(stitched(named), refusal, plan.agents, citations)
     sources = [user_question or question, *(f"{r.answer} {' '.join(r.citations)}" for r in replies)]
     try:
-        part = await composer.compose(question, named)
+        with span("orchestrator.compose", **{"margin.attempt": 1}):
+            part = await composer.compose(question, named)
         if ungrounded := _ungrounded(part, sources):
-            part = await composer.compose(question, named, ungrounded)
-            if _ungrounded(part, sources):  # never an answer with a number no agent gave
-                return ChatReply(stitched(named), None, plan.agents, citations)
+            with span("orchestrator.compose", **{"margin.attempt": 2}) as retried:
+                part = await composer.compose(question, named, ungrounded)
+                if _ungrounded(part, sources):  # never an answer with a number no agent gave
+                    retried.set_attribute("margin.fallback", "stitched")
+                    return ChatReply(stitched(named), None, plan.agents, citations)
     except AgentUnavailable:  # two good replies beat a 502
         return ChatReply(stitched(named), None, plan.agents, citations)
     lead = dict(named).get("data-agent")

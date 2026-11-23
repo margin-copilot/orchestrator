@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol
 
+from margin_copilot_shared.telemetry import span
+
 from orchestrator.application.ask import Agent, ChatReply, Composer, Router, ask
 
 HISTORY_TURNS = 10
@@ -65,7 +67,8 @@ async def chat(
         if not history or now - history[0].at > EXPIRES_AFTER:
             raise ConversationNotFound
     if history:
-        question_asked = await condenser.standalone(question, history[-HISTORY_TURNS:])
+        with span("orchestrator.condense"):
+            question_asked = await condenser.standalone(question, history[-HISTORY_TURNS:])
     else:
         question_asked = question
     reply = await ask(question_asked, router, agents, composer, user_question=question)

@@ -4,12 +4,15 @@ import os
 
 import httpx
 from agent_framework.foundry import FoundryChatClient
+from agent_framework.observability import enable_instrumentation
 from azure.data.tables.aio import TableClient
 from azure.identity.aio import ManagedIdentityCredential
 from margin_copilot_shared.security.obo import OboClient, managed_identity_assertion
 from margin_copilot_shared.security.tokens import entra_validator
+from margin_copilot_shared.telemetry import configure_telemetry, instrument_app
 from margin_copilot_shared.testing.issuer import LocalIssuer
 from starlette.applications import Starlette
+from starlette.types import ASGIApp
 
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import A2AAgent, FakeAgent
@@ -25,7 +28,13 @@ COMPOSER_TIMEOUT = 30
 CONDENSER_TIMEOUT = 20
 
 
-def create_app() -> Starlette:
+def create_app() -> ASGIApp:
+    if configure_telemetry("orchestrator", os.environ):
+        enable_instrumentation(enable_sensitive_data=False)
+    return instrument_app(_app())
+
+
+def _app() -> Starlette:
     env = os.environ
     adapters = env["ADAPTERS"]
     if adapters == "azure":

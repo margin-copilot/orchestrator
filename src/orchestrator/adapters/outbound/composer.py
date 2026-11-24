@@ -49,7 +49,7 @@ class FoundryComposer:
         self._agent = Agent(
             client=client,
             instructions=INSTRUCTIONS,
-            default_options={"response_format": Composed, "reasoning": {"effort": "medium"}},
+            default_options={"response_format": Composed, "reasoning": {"effort": "low"}},
         )
 
     async def compose(

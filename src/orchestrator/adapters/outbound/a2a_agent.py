@@ -1,6 +1,7 @@
 """Agent port adapters: an A2A client with a fresh OBO token per call, and a fake."""
 
 import asyncio
+import logging
 from collections.abc import Callable, Sequence
 
 import httpx
@@ -16,6 +17,8 @@ from pydantic import ValidationError
 from orchestrator.application.ask import AgentUnavailable
 
 Exchange = Callable[[str, Sequence[str]], str]
+log = logging.getLogger(__name__)
+WARM_LIMIT = 60  # seconds: a container start, then a paused database resuming
 
 
 def agent_card(name: str, url: str) -> AgentCard:
@@ -36,9 +39,16 @@ def agent_card(name: str, url: str) -> AgentCard:
 
 class A2AAgent:
     def __init__(
-        self, name: str, url: str, scope: str, exchange: Exchange, http: httpx.AsyncClient
+        self,
+        name: str,
+        url: str,
+        scope: str,
+        exchange: Exchange,
+        http: httpx.AsyncClient,
+        wakes_database: bool = False,
     ) -> None:
         self._name = name
+        self._wakes_database = wakes_database
         self._url = url
         self._scope = scope
         self._exchange = exchange
@@ -57,6 +67,21 @@ class A2AAgent:
             return await self._send(question, token)
         except (A2AError, httpx.HTTPError) as failed:  # A2AError covers client and JSON-RPC errors
             raise AgentUnavailable(self._name, f"call failed: {failed}") from None
+
+    async def warm(self, user_token: str) -> None:
+        """Starts the agent's container (its card needs no token); the data agent also resumes the
+        database with a query as the user (D-044). Best effort: never raises."""
+        base = self._url.rstrip("/")
+        try:
+            async with asyncio.timeout(WARM_LIMIT):
+                await self._http.get(f"{base}/.well-known/agent-card.json")
+                if self._wakes_database:
+                    token = await asyncio.to_thread(self._exchange, user_token, [self._scope])
+                    await self._http.post(
+                        f"{base}/warm", headers={"Authorization": f"Bearer {token}"}
+                    )
+        except Exception as error:
+            log.warning("warm failed: %s: %s", self._name, type(error).__name__)
 
     async def _send(self, question: str, token: str) -> AgentReply:
         if self._client is None:
@@ -81,6 +106,9 @@ class A2AAgent:
 class FakeAgent:
     def __init__(self, name: str) -> None:
         self._name = name
+
+    async def warm(self, user_token: str) -> None:
+        pass
 
     async def ask(self, question: str) -> AgentReply:
         oid = current_request().caller.oid

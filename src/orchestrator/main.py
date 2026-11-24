@@ -44,7 +44,14 @@ def _app() -> Starlette:
         # Scale-from-zero, a database waking from auto-pause and several model turns.
         http = httpx.AsyncClient(timeout=200)
         agents = {
-            name: A2AAgent(name, env[f"{prefix}_URL"], env[f"{prefix}_SCOPE"], obo.exchange, http)
+            name: A2AAgent(
+                name,
+                env[f"{prefix}_URL"],
+                env[f"{prefix}_SCOPE"],
+                obo.exchange,
+                http,
+                wakes_database=name == "data-agent",
+            )
             for name, prefix in (
                 ("data-agent", "DATA_AGENT"),
                 ("policy-agent", "POLICY_AGENT"),

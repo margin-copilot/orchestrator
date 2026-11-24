@@ -90,6 +90,21 @@ def create_http_app(
             return JSONResponse({"error": f"{unavailable.name} unavailable"}, status_code=502)
         return JSONResponse(asdict(reply) | {"conversation_id": conversation_id})
 
+    warming: dict[str, asyncio.Task] = {}
+
+    async def warm_up(request: Request) -> JSONResponse:
+        """D-044: answers at once and wakes the agents and the database; returns nothing. One
+        warm-up at a time per process, so repeated calls can't multiply the work."""
+        running = warming.get("task")
+        if running is None or running.done():
+            token = current_request().token
+            warming["task"] = asyncio.create_task(
+                asyncio.wait(
+                    [asyncio.ensure_future(agent.warm(token)) for agent in agents.values()]
+                )
+            )
+        return JSONResponse({}, status_code=202)
+
     middleware = [Middleware(AuthMiddleware, validator=validator)]
     if allowed_origins:
         # Outermost, so a browser's preflight is answered before the token check; CORS is a
@@ -102,4 +117,8 @@ def create_http_app(
             max_age=600,
         )
         middleware.insert(0, cors)
-    return Starlette(routes=[Route("/chat", chat_turn, methods=["POST"])], middleware=middleware)
+    routes = [
+        Route("/chat", chat_turn, methods=["POST"]),
+        Route("/warm", warm_up, methods=["POST"]),
+    ]
+    return Starlette(routes=routes, middleware=middleware)

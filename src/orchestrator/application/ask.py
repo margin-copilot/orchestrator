@@ -12,7 +12,12 @@ from margin_copilot_shared.contracts import AgentReply, Refusal
 from margin_copilot_shared.telemetry import span
 
 from orchestrator.domain.grounding import ungrounded_numbers, unknown_citations
-from orchestrator.domain.replies import combined_citations, combined_refusal, stitched
+from orchestrator.domain.replies import (
+    after_echo,
+    combined_citations,
+    combined_refusal,
+    stitched,
+)
 
 AGENTS = ("data-agent", "policy-agent", "action-agent")
 APPROVALS = "approvals"
@@ -137,5 +142,7 @@ async def ask(
     except AgentUnavailable:  # two good replies beat a 502
         return ChatReply(stitched(named), None, plan.agents, citations)
     lead = dict(named).get("data-agent")
+    if lead and not (part := after_echo(part, lead.answer)):
+        return ChatReply(stitched(named), None, plan.agents, citations)
     answer = f"{lead.answer}\n\n{part}" if lead else part
     return ChatReply(answer, None, plan.agents, citations)

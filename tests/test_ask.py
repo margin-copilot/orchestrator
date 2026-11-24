@@ -87,6 +87,26 @@ async def test_an_ungrounded_answer_is_retried_once_then_stitched():
     assert [call[2] for call in composer.calls] == [[], ["7.25"]]
 
 
+async def test_a_composer_repeating_the_data_reply_keeps_only_its_own_part():
+    # Seen live: the composer repeated its input (the question, the replies) before its part.
+    echoed = (
+        f"Data agent's reply (verbatim):\n\nQuestion: {QUESTION}\n\n"
+        f"From the sales data: {DATA.answer}\n\nNot allowed: Ramadan (PP-07 §2)."
+    )
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, ScriptedComposer(echoed))
+    assert reply.answer == f"{DATA.answer}\n\nNot allowed: Ramadan (PP-07 §2)."
+
+
+async def test_a_composer_part_that_is_only_the_data_reply_is_stitched():
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    reply = await ask(QUESTION, StubRouter(plan), agents, ScriptedComposer(DATA.answer))
+    assert reply.answer.startswith("From the sales data: North flour rose")
+    assert "From the policies: Tier A prices" in reply.answer
+
+
 async def test_all_agents_refusing_is_stitched_with_the_refusal():
     refused = AgentReply(answer="No data recorded.", refusal="no_data")
     agents = {"data-agent": StubAgent(refused), "policy-agent": StubAgent(refused)}

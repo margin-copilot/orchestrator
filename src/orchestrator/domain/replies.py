@@ -25,3 +25,10 @@ def combined_refusal(replies: Sequence[AgentReply]) -> Refusal | None:
 
 def stitched(named: Sequence[tuple[str, AgentReply]]) -> str:
     return "\n\n".join(f"{SOURCES.get(name, name)}: {reply.answer}" for name, reply in named)
+
+
+def after_echo(part: str, data_answer: str) -> str:
+    """The composer sometimes repeats its input (the question, the data reply) before its own part.
+    The user already sees the data reply, so keep only what follows it."""
+    at = part.rfind(data_answer)
+    return part if at < 0 else part[at + len(data_answer) :].strip()

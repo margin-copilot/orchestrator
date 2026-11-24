@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 from margin_copilot_shared.testing.issuer import LocalIssuer
+from sse_starlette.sse import AppStatus
 
 from orchestrator.adapters.inbound.http_api import create_http_app
 from orchestrator.adapters.outbound.a2a_agent import FakeAgent
@@ -195,6 +196,27 @@ async def test_a_turn_finishes_and_is_stored_when_the_client_leaves(issuer):
             break
         await asyncio.sleep(0.01)
     assert [len(turns) for turns in store._turns.values()] == [1]
+
+
+async def test_a_shutdown_lets_an_open_stream_finish(issuer):
+    # A deploy stops the old replica with SIGTERM; a JSON turn in flight still gets its reply.
+    gate = asyncio.Event()
+
+    class Gated(FakeAgent):
+        async def ask(self, question):
+            await gate.wait()
+            return await super().ask(question)
+
+    app = app_for(issuer, agents={"data-agent": Gated("data-agent")}, router=FakeRouter())
+    AppStatus.should_exit = True  # what uvicorn's SIGTERM handler sets
+    try:
+        asyncio.get_running_loop().call_later(1.0, gate.set)  # after the watcher's 0.5 s poll
+        response = await client(app).post(
+            "/chat", json={"question": "q"}, headers=bearer(issuer) | STREAM
+        )
+    finally:
+        AppStatus.should_exit = False
+    assert events(response.text)[-1][0] == "done"
 
 
 async def test_a_streamed_reply_carries_cors_headers_for_the_web_app(issuer):

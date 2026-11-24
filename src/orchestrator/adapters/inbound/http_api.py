@@ -44,6 +44,7 @@ MAX_QUESTION_CHARS = 2_000
 TURN_LIMIT = 230  # under the 240 s ingress and client limit; nothing is stored past it
 FIELDS = {"question", "conversation_id"}  # history never comes from the request
 STREAM = "text/event-stream"
+SHUTDOWN_GRACE_SECONDS = 25
 log = logging.getLogger(__name__)
 running: set[asyncio.Task] = set()  # a streamed turn outlives a client that leaves
 
@@ -110,7 +111,9 @@ def create_http_app(
                 if event in ("done", "error"):
                     return
 
-        return EventSourceResponse(stream())
+        # On SIGTERM (a deploy) the stream keeps going until its turn ends, within the
+        # 30 s Container Apps waits before SIGKILL, as a JSON turn in flight does.
+        return EventSourceResponse(stream(), shutdown_grace_period=SHUTDOWN_GRACE_SECONDS)
 
     async def answer(
         question: str, conversation_id: str | None, owner: str, progress: Progress

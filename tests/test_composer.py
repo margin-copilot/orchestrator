@@ -28,7 +28,7 @@ async def test_the_composer_sees_each_reply_and_no_tools():
     assert "North flour rose 2.9% on 2026-02-20." in sent
     assert "No Tier A increases in Ramadan." in sent and "PP-07 §2" in sent
     assert not options.get("tools")
-    assert options["reasoning"] == {"effort": "low"}
+    assert options["reasoning"] == {"effort": "medium"}
     instructions = " ".join(options["instructions"].split())
     assert (
         "never compute new ones (no differences, sums, percentages or suggested prices)"

@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from margin_copilot_shared.contracts import AgentReply
 
@@ -199,3 +201,66 @@ async def test_an_unknown_clause_id_is_retried_then_stitched():
     reply = await ask(QUESTION, StubRouter(plan), agents, composer)
     assert reply.answer.startswith("From the sales data:")
     assert composer.calls[1][2] == ["PP-06 §1"]
+
+
+class Recorder:
+    def __init__(self):
+        self.events = []
+
+    def __call__(self, event, data):
+        self.events.append((event, data))
+
+
+class GatedAgent(StubAgent):
+    """Answers only once its gate opens, to show what was reported before."""
+
+    def __init__(self, reply, gate):
+        super().__init__(reply)
+        self.gate = gate
+
+    async def ask(self, question):
+        await self.gate.wait()
+        return await super().ask(question)
+
+
+async def test_a_composed_turn_reports_its_steps_and_the_lead():
+    recorder = Recorder()
+    composer = ScriptedComposer("Not allowed: it rose 2.9% on 2026-02-20, in Ramadan (PP-07 §2).")
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": StubAgent(POLICY)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    await ask(QUESTION, StubRouter(plan), agents, composer, progress=recorder)
+    assert recorder.events == [
+        ("step", {"step": "route"}),
+        ("step", {"step": "data-agent"}),
+        ("step", {"step": "policy-agent"}),
+        ("lead", {"answer": DATA.answer}),
+        ("step", {"step": "compose"}),
+    ]
+
+
+async def test_the_lead_comes_when_the_data_reply_arrives():
+    recorder, gate = Recorder(), asyncio.Event()
+    composer = ScriptedComposer("Not allowed: it rose 2.9% on 2026-02-20, in Ramadan (PP-07 §2).")
+    agents = {"data-agent": StubAgent(DATA), "policy-agent": GatedAgent(POLICY, gate)}
+    plan = Plan("agents", ("data-agent", "policy-agent"))
+    turn = asyncio.create_task(ask(QUESTION, StubRouter(plan), agents, composer, progress=recorder))
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert recorder.events[-1] == ("lead", {"answer": DATA.answer})
+    gate.set()
+    await turn
+    assert recorder.events[-1] == ("step", {"step": "compose"})
+
+
+async def test_one_agent_reports_no_lead():
+    recorder = Recorder()
+    agents = {"data-agent": StubAgent(DATA)}
+    plan = Plan("agents", ("data-agent",))
+    await ask(QUESTION, StubRouter(plan), agents, NoComposer(), progress=recorder)
+    assert recorder.events == [("step", {"step": "route"}), ("step", {"step": "data-agent"})]
+
+
+async def test_approvals_report_only_the_route():
+    recorder = Recorder()
+    await ask("Approve it", StubRouter(Plan("approvals")), {}, NoComposer(), progress=recorder)
+    assert recorder.events == [("step", {"step": "route"})]

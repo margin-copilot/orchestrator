@@ -11,7 +11,15 @@ from typing import Protocol
 
 from margin_copilot_shared.telemetry import span
 
-from orchestrator.application.ask import Agent, ChatReply, Composer, Router, ask
+from orchestrator.application.ask import (
+    Agent,
+    ChatReply,
+    Composer,
+    Progress,
+    Router,
+    ask,
+    quiet,
+)
 
 HISTORY_TURNS = 10
 EXPIRES_AFTER = timedelta(days=7)
@@ -53,6 +61,7 @@ async def chat(
     composer: Composer,
     condenser: Condenser,
     store: ConversationStore,
+    progress: Progress = quiet,
 ) -> tuple[ChatReply, str]:
     history: list[Turn] = []
     if conversation_id is None:
@@ -67,11 +76,14 @@ async def chat(
         if not history or now - history[0].at > EXPIRES_AFTER:
             raise ConversationNotFound
     if history:
+        progress("step", {"step": "condense"})
         with span("orchestrator.condense"):
             question_asked = await condenser.standalone(question, history[-HISTORY_TURNS:])
     else:
         question_asked = question
-    reply = await ask(question_asked, router, agents, composer, user_question=question)
+    reply = await ask(
+        question_asked, router, agents, composer, user_question=question, progress=progress
+    )
     try:
         await store.add(owner, conversation_id, Turn(question, reply.answer, now))
     except Exception as error:

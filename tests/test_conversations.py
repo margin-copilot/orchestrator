@@ -29,7 +29,9 @@ class RecordingCondenser:
         return f"standalone: {question}"
 
 
-async def run(question, conversation_id=None, owner="north", store=None, condenser=None, now=NOW):
+async def run(
+    question, conversation_id=None, owner="north", store=None, condenser=None, now=NOW, **kw
+):
     agent = Echo()
     reply, cid = await chat(
         question,
@@ -41,6 +43,7 @@ async def run(question, conversation_id=None, owner="north", store=None, condens
         FakeComposer(),
         condenser or RecordingCondenser(),
         store or MemoryConversationStore(),
+        **kw,
     )
     return reply, cid, agent
 
@@ -97,3 +100,16 @@ async def test_a_conversation_older_than_seven_days_is_not_found():
     await run("And September?", cid, store=store, now=NOW + timedelta(days=6, hours=23))
     with pytest.raises(ConversationNotFound):
         await run("And August?", cid, store=store, now=NOW + timedelta(days=7, minutes=1))
+
+
+async def test_a_follow_up_reports_condense_first():
+    store, events = MemoryConversationStore(), []
+    await store.add("north", "a" * 32, Turn("q0", "a0", NOW))
+    await run(
+        "And in September?",
+        "a" * 32,
+        store=store,
+        now=NOW + timedelta(hours=1),
+        progress=lambda event, data: events.append((event, data)),
+    )
+    assert events[:2] == [("step", {"step": "condense"}), ("step", {"step": "route"})]

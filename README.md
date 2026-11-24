@@ -9,7 +9,8 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
 ## Contract
 
 - `POST /chat` with `{"question": "...", "conversation_id": "..."}` (`conversation_id` optional; at most 2,000 characters; any other field is 400) returns `{"answer": "...", "refusal": null, "agents": ["data-agent", "policy-agent"], "citations": ["PP-07 §2"], "conversation_id": "..."}` (D-029). `refusal` is `out_of_scope`, `no_access` or `no_data` when nothing could be answered; `citations` are policy clauses. An unknown, someone else's or expired conversation is 404 `{"error": "conversation not found"}`.
-- It needs a bearer token addressed to this service, with scope `access_as_user`, from an app on `ALLOWED_CALLERS`.
+- `POST /warm` (D-044) returns `202 {}` at once, then wakes the agents in the background: it fetches each agent's card, which starts its container, and calls the data agent's `/warm` with an OBO token, which resumes a paused database as the user. One warm-up runs at a time per replica; failures are logged as `warm failed: <agent>: <type>`. The web app calls it after sign-in.
+- Both routes need a bearer token addressed to this service, with scope `access_as_user`, from an app on `ALLOWED_CALLERS`.
 - Errors:
   - 400 for a malformed body, 413 when too large.
   - 401 or 403 for an untrusted token or a disallowed caller.
@@ -21,7 +22,7 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
 
 ## Configuration
 
-Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`, `ALLOWED_ORIGINS` (exact browser origins allowed to call `/chat`, comma-separated; CORS only, the token check still decides).
+Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`, `ALLOWED_ORIGINS` (exact browser origins allowed to call `/chat` and `/warm`, comma-separated; CORS only, the token check still decides).
 
 ## Run and test
 

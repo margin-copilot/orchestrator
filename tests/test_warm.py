@@ -7,7 +7,7 @@ import pytest
 from margin_copilot_shared.testing.issuer import LocalIssuer
 
 from orchestrator.adapters.inbound.http_api import create_http_app
-from orchestrator.adapters.outbound.a2a_agent import A2AAgent
+from orchestrator.adapters.outbound.a2a_agent import WARM_LIMIT, A2AAgent
 from orchestrator.adapters.outbound.composer import FakeComposer
 from orchestrator.adapters.outbound.condenser import FakeCondenser
 from orchestrator.adapters.outbound.fakes import MemoryConversationStore
@@ -124,3 +124,9 @@ async def test_a_failing_warm_up_never_raises(caplog):
     )
     await agent.warm("user-token")
     assert "warm failed: data-agent: ConnectError" in caplog.text
+
+
+def test_the_warm_up_outlasts_a_cold_start_and_a_database_resume():
+    # Measured from cold: the data agent's start about 30 s, then the database's resume about 51 s.
+    # A shorter limit logs "warm failed" for a warm-up that works.
+    assert WARM_LIMIT >= 120

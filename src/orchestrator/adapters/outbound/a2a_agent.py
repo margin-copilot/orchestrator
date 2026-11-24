@@ -18,7 +18,7 @@ from orchestrator.application.ask import AgentUnavailable
 
 Exchange = Callable[[str, Sequence[str]], str]
 log = logging.getLogger(__name__)
-WARM_LIMIT = 60  # seconds: a container start, then a paused database resuming
+WARM_LIMIT = 120  # seconds: a container start (~30 s), then a paused database resuming (~51 s)
 
 
 def agent_card(name: str, url: str) -> AgentCard:

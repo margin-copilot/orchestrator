@@ -44,8 +44,8 @@ async def test_the_composer_writes_only_the_policy_part():
     assert "The user sees the data agent's reply exactly as written" in instructions
     assert "Don't repeat the data agent's reply" in instructions
     assert (
-        "When it asks what to do, state the limits and approvals the policy reply gives "
-        "(its percentages and who approves)."
+        "When it asks what to do, state each limit with its number exactly as the policy reply "
+        'gives it (for example "up to 4%") and who approves above it.'
     ) in instructions
     assert "Quote numbers exactly as written, without quotation marks" in instructions
 

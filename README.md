@@ -23,7 +23,7 @@ Part of **Margin Copilot**, a secure multi-agent pricing assistant on Azure, bui
 
 ## Configuration
 
-Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`, `ALLOWED_ORIGINS` (exact browser origins allowed to call `/chat` and `/warm`, comma-separated; CORS only, the token check still decides).
+Names in `.env.example`. `ADAPTERS=azure|fake` (no default), `TENANT_ID`, `CLIENT_ID` (this app registration), `AZURE_CLIENT_ID` (its managed identity), `ALLOWED_CALLERS`, `DATA_AGENT_URL`, `DATA_AGENT_SCOPE`, `POLICY_AGENT_URL`, `POLICY_AGENT_SCOPE`, `ACTION_AGENT_URL`, `ACTION_AGENT_SCOPE`, `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` (the router's, composer's and condenser's model, called with the managed identity), `TABLE_ENDPOINT`, `CONVERSATIONS_TABLE`, `ALLOWED_ORIGINS` (exact browser origins allowed to call `/chat` and `/warm`, comma-separated; CORS only, the token check still decides). Optional: `STREAM_SHUTDOWN_GRACE_SECONDS` (seconds an open stream may finish after SIGTERM; a non-negative number, default 25; infra sets 235, within the 240 s Container Apps termination grace; anything else fails at start).
 
 ## Run and test
 

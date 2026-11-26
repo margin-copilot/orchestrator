@@ -219,6 +219,30 @@ async def test_a_shutdown_lets_an_open_stream_finish(issuer):
     assert events(response.text)[-1][0] == "done"
 
 
+async def test_the_stream_grace_comes_from_the_app(issuer):
+    gate = asyncio.Event()
+
+    class Gated(FakeAgent):
+        async def ask(self, question):
+            await gate.wait()
+            return await super().ask(question)
+
+    app = app_for(
+        issuer, agents={"data-agent": Gated("data-agent")}, router=FakeRouter(), stream_grace=0.01
+    )
+    AppStatus.should_exit = True
+    try:
+        # Giving up cuts the stream before a final event; httpx's ASGI transport calls that incomplete.
+        with pytest.raises(AssertionError, match=""):
+            await asyncio.wait_for(
+                client(app).post("/chat", json={"question": "q"}, headers=bearer(issuer) | STREAM),
+                timeout=5,
+            )
+    finally:
+        AppStatus.should_exit = False
+        gate.set()
+
+
 async def test_a_streamed_reply_carries_cors_headers_for_the_web_app(issuer):
     app = app_for(issuer, allowed_origins=[WEB])
     response = await client(app).post(

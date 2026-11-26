@@ -59,6 +59,7 @@ def create_http_app(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     turn_limit: float = TURN_LIMIT,
     allowed_origins: Sequence[str] = (),
+    stream_grace: float = SHUTDOWN_GRACE_SECONDS,
 ) -> Starlette:
     async def chat_turn(request: Request) -> JSONResponse | EventSourceResponse:
         body = await request.body()
@@ -113,7 +114,7 @@ def create_http_app(
 
         # On SIGTERM (a deploy) the stream keeps going until its turn ends, within the
         # 30 s Container Apps waits before SIGKILL, as a JSON turn in flight does.
-        return EventSourceResponse(stream(), shutdown_grace_period=SHUTDOWN_GRACE_SECONDS)
+        return EventSourceResponse(stream(), shutdown_grace_period=stream_grace)
 
     async def answer(
         question: str, conversation_id: str | None, owner: str, progress: Progress

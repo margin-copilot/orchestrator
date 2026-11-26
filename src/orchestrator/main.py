@@ -1,6 +1,7 @@
 """Composition root. ADAPTERS=azure|fake picks the adapters; there is no default."""
 
 import os
+from collections.abc import Mapping
 
 import httpx
 from agent_framework.foundry import FoundryChatClient
@@ -14,7 +15,7 @@ from margin_copilot_shared.testing.issuer import LocalIssuer
 from starlette.applications import Starlette
 from starlette.types import ASGIApp
 
-from orchestrator.adapters.inbound.http_api import create_http_app
+from orchestrator.adapters.inbound.http_api import SHUTDOWN_GRACE_SECONDS, create_http_app
 from orchestrator.adapters.outbound.a2a_agent import A2AAgent, FakeAgent
 from orchestrator.adapters.outbound.composer import FakeComposer, FoundryComposer
 from orchestrator.adapters.outbound.condenser import FakeCondenser, FoundryCondenser
@@ -34,8 +35,20 @@ def create_app() -> ASGIApp:
     return instrument_app(_app())
 
 
+def _stream_grace(env: Mapping[str, str]) -> float:
+    raw = env.get("STREAM_SHUTDOWN_GRACE_SECONDS", str(SHUTDOWN_GRACE_SECONDS))
+    try:
+        grace = float(raw)
+    except ValueError:
+        grace = -1
+    if not 0 <= grace < float("inf"):
+        raise ValueError(f"STREAM_SHUTDOWN_GRACE_SECONDS must be a number of seconds, not {raw!r}")
+    return grace
+
+
 def _app() -> Starlette:
     env = os.environ
+    stream_grace = _stream_grace(env)
     adapters = env["ADAPTERS"]
     if adapters == "azure":
         tenant_id, client_id, identity = env["TENANT_ID"], env["CLIENT_ID"], env["AZURE_CLIENT_ID"]
@@ -77,7 +90,14 @@ def _app() -> Starlette:
         validator = entra_validator(tenant_id, client_id, callers)
         origins = [origin.strip() for origin in env["ALLOWED_ORIGINS"].split(",") if origin.strip()]
         return create_http_app(
-            router, agents, composer, condenser, store, validator, allowed_origins=origins
+            router,
+            agents,
+            composer,
+            condenser,
+            store,
+            validator,
+            allowed_origins=origins,
+            stream_grace=stream_grace,
         )
     if adapters == "fake":
         # A fresh in-memory key per process: nobody outside this process can mint a token for it.
@@ -93,5 +113,6 @@ def _app() -> Starlette:
             MemoryConversationStore(),
             validator,
             allowed_origins=["http://localhost:5173"],
+            stream_grace=stream_grace,
         )
     raise ValueError(f"ADAPTERS must be azure or fake, not {adapters!r}")

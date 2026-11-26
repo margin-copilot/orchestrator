@@ -51,6 +51,14 @@ def test_azure_mode_has_no_defaults(azure_env, monkeypatch, missing):
         create_app()
 
 
+@pytest.mark.parametrize("value", ["-1", "soon"])
+def test_a_bad_stream_grace_is_refused(monkeypatch, value):
+    monkeypatch.setenv("ADAPTERS", "fake")
+    monkeypatch.setenv("STREAM_SHUTDOWN_GRACE_SECONDS", value)
+    with pytest.raises(ValueError, match="STREAM_SHUTDOWN_GRACE_SECONDS"):
+        create_app()
+
+
 def test_adapters_must_be_set_explicitly(monkeypatch):
     monkeypatch.delenv("ADAPTERS", raising=False)
     with pytest.raises(KeyError):

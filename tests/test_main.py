@@ -59,6 +59,12 @@ def test_a_bad_stream_grace_is_refused(monkeypatch, value):
         create_app()
 
 
+def test_a_blank_stream_grace_means_the_default(monkeypatch):
+    monkeypatch.setenv("ADAPTERS", "fake")
+    monkeypatch.setenv("STREAM_SHUTDOWN_GRACE_SECONDS", "")
+    assert create_app() is not None
+
+
 def test_adapters_must_be_set_explicitly(monkeypatch):
     monkeypatch.delenv("ADAPTERS", raising=False)
     with pytest.raises(KeyError):

@@ -36,7 +36,7 @@ def create_app() -> ASGIApp:
 
 
 def _stream_grace(env: Mapping[str, str]) -> float:
-    raw = env.get("STREAM_SHUTDOWN_GRACE_SECONDS", str(SHUTDOWN_GRACE_SECONDS))
+    raw = env.get("STREAM_SHUTDOWN_GRACE_SECONDS") or str(SHUTDOWN_GRACE_SECONDS)
     try:
         grace = float(raw)
     except ValueError:

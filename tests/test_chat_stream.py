@@ -230,17 +230,45 @@ async def test_the_stream_grace_comes_from_the_app(issuer):
     app = app_for(
         issuer, agents={"data-agent": Gated("data-agent")}, router=FakeRouter(), stream_grace=0.01
     )
+    request = {"type": "http.request", "body": b'{"question": "q"}', "more_body": False}
+    sent = []
+
+    async def receive():
+        nonlocal request
+        if request:
+            message, request = request, None
+            return message
+        await asyncio.Event().wait()  # the client stays connected
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/chat",
+        "raw_path": b"/chat",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"authorization", bearer(issuer)["Authorization"].encode()),
+            (b"accept", b"text/event-stream"),
+            (b"content-type", b"application/json"),
+        ],
+        "client": ("127.0.0.1", 1),
+        "server": ("orch", 80),
+    }
     AppStatus.should_exit = True
     try:
-        # Giving up cuts the stream short; the ASGI test transport reports that as an assertion.
-        with pytest.raises(AssertionError):
-            await asyncio.wait_for(
-                client(app).post("/chat", json={"question": "q"}, headers=bearer(issuer) | STREAM),
-                timeout=5,
-            )
+        await asyncio.wait_for(app(scope, receive, send), 5)  # the default grace is 25 s
     finally:
         AppStatus.should_exit = False
         gate.set()
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert b"event: done" not in body
 
 
 async def test_a_streamed_reply_carries_cors_headers_for_the_web_app(issuer):

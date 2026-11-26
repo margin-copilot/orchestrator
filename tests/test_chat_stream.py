@@ -232,8 +232,8 @@ async def test_the_stream_grace_comes_from_the_app(issuer):
     )
     AppStatus.should_exit = True
     try:
-        # Giving up cuts the stream before a final event; httpx's ASGI transport calls that incomplete.
-        with pytest.raises(AssertionError, match=""):
+        # Giving up cuts the stream short; the ASGI test transport reports that as an assertion.
+        with pytest.raises(AssertionError):
             await asyncio.wait_for(
                 client(app).post("/chat", json={"question": "q"}, headers=bearer(issuer) | STREAM),
                 timeout=5,

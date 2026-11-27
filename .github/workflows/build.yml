@@ -3,6 +3,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # temporary (Task 6 Step 6): deploy a given image
+  workflow_dispatch:
+    inputs:
+      image:
+        type: string
+        required: true
 permissions:
   contents: read
 jobs:
@@ -52,7 +58,7 @@ jobs:
       sha: ${{ github.sha }}
   deploy:
     needs: [image, gate]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && !failure() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -68,7 +74,9 @@ jobs:
       RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
     steps:
       - id: tag
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY}:sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_IMAGE: ${{ inputs.image }}
+        run: echo "image=${INPUT_IMAGE:-ghcr.io/${GITHUB_REPOSITORY}:sha-${GITHUB_SHA::7}}" >> "$GITHUB_OUTPUT"
       - uses: azure/login@v3.1.0
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}

@@ -112,8 +112,9 @@ def create_http_app(
                 if event in ("done", "error"):
                     return
 
-        # On SIGTERM (a deploy) the stream keeps going until its turn ends, within the
-        # 30 s Container Apps waits before SIGKILL, as a JSON turn in flight does.
+        # On SIGTERM (a deploy) the stream keeps going until its turn ends, for up to
+        # STREAM_SHUTDOWN_GRACE_SECONDS (default 25; infra sets 235 within the app's 240 s
+        # termination grace before SIGKILL), as a JSON turn in flight does.
         return EventSourceResponse(stream(), shutdown_grace_period=stream_grace)
 
     async def answer(
